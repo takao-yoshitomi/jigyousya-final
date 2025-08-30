@@ -838,6 +838,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
      function updateMonthlyStatus(monthData, taskNames) {
+        const oldStatus = monthData.status; // Get status before calculation
+
         const totalTasks = taskNames.length;
         if (totalTasks === 0) {
             monthData.status = '-';
@@ -859,6 +861,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         if(!statusRow) return;
         const statusCell = statusRow.cells[monthIndex + 1];
         updateStatusCell(statusCell, monthData);
+
+        // Sparkle effect if status changed to '月次完了'
+        if (monthData.status === '月次完了' && oldStatus !== '月次完了') {
+            statusCell.classList.add('sparkle-effect');
+            setTimeout(() => {
+                statusCell.classList.remove('sparkle-effect');
+            }, 2000); // Remove after 2 seconds
+        }
     }
 
     // --- Helper Functions ---

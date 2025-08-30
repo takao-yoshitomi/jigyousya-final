@@ -1147,3 +1147,22 @@ button:active {
     margin-left: 8px;
     vertical-align: middle;
 }
+
+/* Sparkle effect for task completion */
+.sparkle-effect {
+    animation: sparkle-animation 1s ease-in-out 2; /* 1s animation, 2 iterations = 2s total */
+    border-radius: 5px;
+    position: relative;
+    z-index: 10;
+}
+
+@keyframes sparkle-animation {
+    0%, 100% {
+        box-shadow: 0 0 8px 4px rgba(255, 215, 0, 0.7);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 20px 10px rgba(255, 255, 0, 0.9);
+        transform: scale(1.05);
+    }
+}
