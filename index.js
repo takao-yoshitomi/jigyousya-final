@@ -475,30 +475,36 @@ document.addEventListener('DOMContentLoaded', () => {
             return textMatch && staffMatch && monthMatch && inactiveMatch;
         });
 
-        // Custom sorting logic: 決算月今月起点降順 → 未入力期間降順
+        // Custom sorting logic: 決算月（今月-2ヶ月）起点 → 未入力期間降順
         filteredClients.sort((a, b) => {
-            // まず決算月で比較（今月起点降順）
+            // まず決算月で比較（今月-2ヶ月を起点）
             const currentMonth = new Date().getMonth() + 1; // 現在の月（1-12）
-            
-            // 今月から始まって降順になるよう調整
+
+            // 今月-2ヶ月から始まって昇順になるよう調整
             function getMonthOrder(month) {
-                // 8月が1、9月が2、...、7月が12になるような順序を作る
-                let order = month - currentMonth + 1;
+                // 例: 現在8月の場合、startMonthは6月
+                let startMonth = currentMonth - 2;
+                if (startMonth <= 0) {
+                    startMonth += 12;
+                }
+
+                // 6月が1、7月が2、...、5月が12になるような順序を作る
+                let order = month - startMonth + 1;
                 if (order <= 0) order += 12;
                 return order;
             }
-            
+
             const orderA = getMonthOrder(a.fiscal_month);
             const orderB = getMonthOrder(b.fiscal_month);
-            
+
             if (orderA !== orderB) {
                 return orderA - orderB;
             }
-            
+
             // 決算月が同じ場合、未入力期間で比較（降順：長い期間が上）
             const unattendedA = parseInt(a.unattendedMonths.replace('ヶ月', ''));
             const unattendedB = parseInt(b.unattendedMonths.replace('ヶ月', ''));
-            
+
             return unattendedB - unattendedA; // 降順
         });
 
