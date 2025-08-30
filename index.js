@@ -212,9 +212,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         await initializeAuthenticatedApp();
-                fetchStaffs(),
-                fetchSettings()
-            ]);
 
             applyFontFamily(appSettings.font_family);
             populateFilters();
@@ -365,7 +362,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Add client button
         document.getElementById('add-client-button').addEventListener('click', () => {
-            window.location.href = 'edit-supabase.html';
+            window.location.href = 'edit.html';
         });
 
         // Window click to close modal
@@ -390,7 +387,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Navigate to client detail page
-            window.location.href = `details-supabase.html?id=${clientId}`;
+            window.location.href = `details.html?id=${clientId}`;
         }
     }
 

@@ -259,7 +259,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 
                 // Redirect to edit mode for the new client
                 setTimeout(() => {
-                    window.location.href = `edit-supabase.html?id=${result.id}`;
+                    window.location.href = `edit.html?id=${result.id}`;
                 }, 1500);
                 
             } else {
@@ -347,7 +347,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     
                     // Redirect to main page after delete
                     setTimeout(() => {
-                        window.location.href = 'index-supabase-complete.html';
+                        window.location.href = 'index.html';
                     }, 2000);
                     return;
             }
