@@ -194,6 +194,115 @@ export class SupabaseAPI {
         return data;
     }
     
+    static async getDefaultTasksByAccountingMethod(accountingMethod) {
+        const { data, error } = await supabase
+            .from('default_tasks')
+            .select('*')
+            .eq('accounting_method', accountingMethod)
+            .eq('is_active', true)
+            .single();
+            
+        if (error && error.code !== 'PGRST116') throw error;
+        if (!data) return [];
+        
+        // Parse tasks JSON field
+        try {
+            return typeof data.tasks === 'string' ? JSON.parse(data.tasks) : data.tasks || [];
+        } catch (e) {
+            console.error('Error parsing tasks JSON:', e);
+            return [];
+        }
+    }
+    
+    static async upsertDefaultTasks(accountingMethod, tasks) {
+        const { data, error } = await supabase
+            .from('default_tasks')
+            .upsert({
+                accounting_method: accountingMethod,
+                tasks: JSON.stringify(tasks),
+                task_name: `${accountingMethod}セット`,
+                display_order: accountingMethod === '記帳代行' ? 999 : 998,
+                is_active: true
+            }, {
+                onConflict: 'accounting_method'
+            })
+            .select()
+            .single();
+            
+        if (error) throw error;
+        return data;
+    }
+    
+    // 経理方式別初期項目設定機能
+    static async setupInitialTasksForClient(clientId) {
+        try {
+            // Get client info
+            const client = await this.getClient(clientId);
+            if (!client.accounting_method) {
+                throw new Error('クライアントに経理方式が設定されていません');
+            }
+            
+            // Get default tasks for this accounting method
+            const defaultTasks = await this.getDefaultTasksByAccountingMethod(client.accounting_method);
+            if (defaultTasks.length === 0) {
+                throw new Error(`${client.accounting_method}の初期項目が設定されていません`);
+            }
+            
+            // Set up custom tasks for current year
+            const currentYear = new Date().getFullYear();
+            const customTasksByYear = client.custom_tasks_by_year || {};
+            customTasksByYear[currentYear] = defaultTasks;
+            
+            // Update client
+            const updatedClient = await this.updateClient(clientId, {
+                custom_tasks_by_year: customTasksByYear
+            });
+            
+            console.log(`Initial tasks setup completed for client ${client.name}:`, defaultTasks);
+            return {
+                client: updatedClient,
+                tasks: defaultTasks,
+                year: currentYear
+            };
+            
+        } catch (error) {
+            console.error('Error setting up initial tasks:', error);
+            throw error;
+        }
+    }
+    
+    static async checkIfClientNeedsInitialSetup(clientId) {
+        try {
+            const client = await this.getClient(clientId);
+            const currentYear = new Date().getFullYear();
+            
+            // Check if client has accounting method
+            if (!client.accounting_method || !['記帳代行', '自計'].includes(client.accounting_method)) {
+                return { needs: false, reason: '経理方式が未設定または不明' };
+            }
+            
+            // Check if client has custom tasks for current year
+            const customTasks = client.custom_tasks_by_year;
+            if (!customTasks || typeof customTasks !== 'object') {
+                return { needs: true, reason: 'カスタムタスクが未設定' };
+            }
+            
+            if (!customTasks[currentYear] || !Array.isArray(customTasks[currentYear])) {
+                return { needs: true, reason: `${currentYear}年のタスクが未設定` };
+            }
+            
+            if (customTasks[currentYear].length === 0) {
+                return { needs: true, reason: 'タスクリストが空' };
+            }
+            
+            return { needs: false, reason: '初期設定済み' };
+            
+        } catch (error) {
+            console.error('Error checking client setup status:', error);
+            return { needs: false, reason: 'エラー: ' + error.message };
+        }
+    }
+    
     // 編集セッション関連（悲観ロック）
     static async createEditingSession(clientId, userId) {
         const { data, error } = await supabase
