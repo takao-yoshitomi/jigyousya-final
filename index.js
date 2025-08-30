@@ -212,16 +212,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         await initializeAuthenticatedApp();
-
-            applyFontFamily(appSettings.font_family);
-            populateFilters();
-            applyFilterState();
-            renderClients();
-            updateSortIcons();
-        } catch (error) {
-            console.error("Error initializing app:", error);
-            alert("アプリケーションの初期化に失敗しました: " + handleSupabaseError(error));
-        }
     }
 
     // Initialize app when authenticated
