@@ -1,26 +1,9 @@
 // Supabase クライアント設定
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
-
-// 環境設定
-const getSupabaseConfig = () => {
-    // 本番環境では環境変数から取得
-    if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        return {
-            url: window.SUPABASE_URL || 'https://lqwjmlkkdddjnnxnlyfz.supabase.co',
-            anonKey: window.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxxd2ptbGtrZGRkam5ueG5seWZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYyOTI2MjMsImV4cCI6MjA3MTg2ODYyM30.U9OndAw71LEQrYA7KBmBRfmNVtISVDBMvhm8s11wKfg'
-        };
-    }
-    
-    // 開発環境用の設定
-    return {
-        url: 'https://lqwjmlkkdddjnnxnlyfz.supabase.co',
-        anonKey: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxxd2ptbGtrZGRkam5ueG5seWZ6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYyOTI2MjMsImV4cCI6MjA3MTg2ODYyM30.U9OndAw71LEQrYA7KBmBRfmNVtISVDBMvhm8s11wKfg'
-    };
-};
+import { SUPABASE_CONFIG } from './supabase-env.js';
 
 // Supabaseクライアント初期化
-const config = getSupabaseConfig();
-export const supabase = createClient(config.url, config.anonKey);
+export const supabase = createClient(SUPABASE_CONFIG.url, SUPABASE_CONFIG.anonKey);
 
 // API操作用のヘルパー関数
 export class SupabaseAPI {
