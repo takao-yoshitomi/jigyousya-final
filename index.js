@@ -200,19 +200,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // Add auth event listeners first
         addAuthEventListeners();
         
-        // For testing: Skip authentication and load app directly
-        console.log('[Main] Skipping authentication for testing - loading app directly');
+        // Check authentication state
+        const isAuthenticated = await checkAuthState();
         
-        setupTableHeaders();
-        addEventListeners();
-        populateMonthThresholds();
-        populateFontFamilySelect();
-        loadFilterState();
+        // Only initialize app if authenticated
+        if (!isAuthenticated) {
+            console.log('[Main] User not authenticated, showing auth modal');
+            authModal.style.display = 'block';
+            hideStatus();
+            return;
+        }
         
-        try {
-            // Fetch data from Supabase
-            [clients, staffs, appSettings] = await Promise.all([
-                fetchClients(),
+        await initializeAuthenticatedApp();
                 fetchStaffs(),
                 fetchSettings()
             ]);
