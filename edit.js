@@ -9,7 +9,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const staffSelect = document.getElementById('staff-select');
     const fiscalMonthSelect = document.getElementById('fiscal-month');
     const accountingMethodSelect = document.getElementById('accounting-method');
-    const statusSelect = document.getElementById('status-select'); // 追加
+    
     const saveButton = document.getElementById('save-button');
     
     // 削除関連の要素（存在しない場合はnull）
@@ -106,7 +106,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         clientNameDisplay.style.display = 'none';
         clientNoInput.readOnly = false;
         populateStaffDropdown();
-        statusSelect.value = '未着手'; // 新規作成時のデフォルト
+        
     }
 
     async function initializeEditMode() {
@@ -122,7 +122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
             fiscalMonthSelect.value = `${currentClient.fiscal_month}月`;
             accountingMethodSelect.value = currentClient.accounting_method;
-            statusSelect.value = currentClient.status; // 編集時にステータスを設定
+            
 
             // 編集モードの場合、削除エリアを表示
             const dangerZone = document.querySelector('.danger-zone');
@@ -202,7 +202,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             staff_id: parseInt(staffSelect.value),
             fiscal_month: parseInt(fiscalMonthSelect.value.replace('月', '')),
             accounting_method: accountingMethodSelect.value,
-            status: statusSelect.value, // statusをリクエストに追加
+            
         };
 
         if (isNewMode && !clientNoValue) {
@@ -213,7 +213,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             alert('No.は正の整数で入力してください。');
             return;
         }
-        if (!clientData.name || !clientData.staff_id || !clientData.fiscal_month || !clientData.accounting_method || !clientData.status) {
+        if (!clientData.name || !clientData.staff_id || !clientData.fiscal_month || !clientData.accounting_method) {
             alert('すべての必須項目を入力または選択してください。');
             return;
         }
