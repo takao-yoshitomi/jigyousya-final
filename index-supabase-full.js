@@ -1,6 +1,17 @@
 import { SupabaseAPI, handleSupabaseError } from './supabase-client.js';
 
 document.addEventListener('DOMContentLoaded', () => {
+    // --- Authentication Elements ---
+    const authModal = document.getElementById('auth-modal');
+    const signInButton = document.getElementById('signin-button');
+    const signOutButton = document.getElementById('signout-button');
+    const userInfo = document.getElementById('user-info');
+    const userName = document.getElementById('user-name');
+    const userEmail = document.getElementById('user-email');
+    const userAvatar = document.getElementById('user-avatar');
+    const authStatus = document.getElementById('auth-status');
+    const authStatusText = document.getElementById('auth-status-text');
+
     // --- DOM Element Selectors ---
     const clientsTableBody = document.querySelector('#clients-table tbody');
     const searchInput = document.getElementById('search-input');
@@ -65,8 +76,164 @@ document.addEventListener('DOMContentLoaded', () => {
         '進捗ステータス': 'status'
     };
 
+    // --- Authentication Functions ---
+    function showAuthStatus(message, type = 'info') {
+        authStatus.className = type;
+        authStatus.style.display = 'block';
+        authStatusText.textContent = message;
+    }
+
+    function hideAuthStatus() {
+        authStatus.style.display = 'none';
+    }
+
+    async function signInWithGoogle() {
+        try {
+            showAuthStatus('Googleでログイン中...', 'warning');
+            console.log('Starting Google sign in...');
+            
+            const { data, error } = await SupabaseAPI.signInWithGoogle();
+            
+            if (error) {
+                console.error('Sign in error:', error);
+                showAuthStatus('❌ ログインエラー: ' + error.message, 'error');
+                return false;
+            } else {
+                console.log('Sign in success:', data);
+                showAuthStatus('✅ ログイン成功！リダイレクト中...', 'success');
+                return true;
+            }
+        } catch (error) {
+            console.error('Sign in exception:', error);
+            showAuthStatus('❌ ログインに失敗しました: ' + error.message, 'error');
+            return false;
+        }
+    }
+
+    async function signOut() {
+        try {
+            showAuthStatus('ログアウト中...', 'warning');
+            await SupabaseAPI.signOut();
+            showAuthStatus('✅ ログアウトしました', 'success');
+            
+            // Show auth modal again
+            setTimeout(() => {
+                authModal.style.display = 'flex';
+                userInfo.style.display = 'none';
+                hideAuthStatus();
+            }, 1500);
+        } catch (error) {
+            console.error('Sign out error:', error);
+            showAuthStatus('❌ ログアウトエラー: ' + error.message, 'error');
+        }
+    }
+
+    function updateUserDisplay(user) {
+        if (user) {
+            userName.textContent = user.user_metadata?.full_name || user.email.split('@')[0];
+            userEmail.textContent = user.email;
+            
+            if (user.user_metadata?.avatar_url) {
+                userAvatar.src = user.user_metadata.avatar_url;
+                userAvatar.style.display = 'block';
+            }
+            
+            userInfo.style.display = 'block';
+            authModal.style.display = 'none';
+        } else {
+            userInfo.style.display = 'none';
+            authModal.style.display = 'flex';
+        }
+    }
+
+    async function checkAuthState() {
+        try {
+            console.log('Checking authentication state...');
+            const user = await SupabaseAPI.getCurrentUser();
+            
+            if (user) {
+                console.log('User authenticated:', user.email);
+                updateUserDisplay(user);
+                return true;
+            } else {
+                console.log('User not authenticated - showing auth modal');
+                authModal.style.display = 'flex';
+                return false;
+            }
+        } catch (error) {
+            console.error('Auth state check error:', error);
+            authModal.style.display = 'flex';
+            return false;
+        }
+    }
+
+    // --- Auth Event Listeners ---
+    function addAuthEventListeners() {
+        if (signInButton) {
+            signInButton.addEventListener('click', signInWithGoogle);
+        }
+        
+        if (signOutButton) {
+            signOutButton.addEventListener('click', signOut);
+        }
+
+        // Listen for auth state changes
+        if (SupabaseAPI.supabase && SupabaseAPI.supabase.auth) {
+            SupabaseAPI.supabase.auth.onAuthStateChange(async (event, session) => {
+                console.log('Auth state changed:', event, session?.user?.email);
+                
+                if (event === 'SIGNED_IN' && session?.user) {
+                    updateUserDisplay(session.user);
+                    // Initialize app when user signs in
+                    await initializeAuthenticatedApp();
+                } else if (event === 'SIGNED_OUT') {
+                    updateUserDisplay(null);
+                }
+            });
+        }
+    }
+
     // --- Initial Setup ---
     async function initializeApp() {
+        // Add auth event listeners first
+        addAuthEventListeners();
+        
+        // Check authentication state
+        const isAuthenticated = await checkAuthState();
+        
+        // Only initialize app if authenticated
+        if (!isAuthenticated) {
+            console.log('User not authenticated, waiting for login...');
+            return;
+        }
+
+        setupTableHeaders();
+        addEventListeners();
+        populateMonthThresholds();
+        populateFontFamilySelect();
+        loadFilterState();
+        
+        try {
+            // Fetch data from Supabase
+            [clients, staffs, appSettings] = await Promise.all([
+                fetchClients(),
+                fetchStaffs(),
+                fetchSettings()
+            ]);
+
+            applyFontFamily(appSettings.font_family);
+            populateFilters();
+            applyFilterState();
+            renderClients();
+            updateSortIcons();
+        } catch (error) {
+            console.error("Error initializing app:", error);
+            alert("アプリケーションの初期化に失敗しました: " + handleSupabaseError(error));
+        }
+    }
+
+    // Initialize app when authenticated
+    async function initializeAuthenticatedApp() {
         setupTableHeaders();
         addEventListeners();
         populateMonthThresholds();
