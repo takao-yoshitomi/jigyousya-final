@@ -66,7 +66,7 @@ document.addEventListener('DOMContentLoaded', () => {
         '決算月': 'fiscal_month',
         '未入力期間': 'unattendedMonths',
         '月次進捗': 'monthlyProgress',
-        '最終更新': 'lastUpdated',
+        '最終更新': 'updated_at',
         '担当者': 'staff_name',
         '経理方式': 'accounting_method',
         '進捗ステータス': 'status'
@@ -475,37 +475,62 @@ document.addEventListener('DOMContentLoaded', () => {
             return textMatch && staffMatch && monthMatch && inactiveMatch;
         });
 
-        // Custom sorting logic: 決算月（今月-2ヶ月）起点 → 未入力期間降順
+        // Sorting logic
         filteredClients.sort((a, b) => {
-            // まず決算月で比較（今月-2ヶ月を起点）
-            const currentMonth = new Date().getMonth() + 1; // 現在の月（1-12）
+            const direction = currentSortDirection === 'asc' ? 1 : -1;
+            let valA, valB;
 
-            // 今月-2ヶ月から始まって昇順になるよう調整
-            function getMonthOrder(month) {
-                // 例: 現在8月の場合、startMonthは6月
-                let startMonth = currentMonth - 2;
-                if (startMonth <= 0) {
-                    startMonth += 12;
-                }
+            // Assign values based on the sort key
+            switch (currentSortKey) {
+                case 'fiscal_month':
+                    const currentMonth = new Date().getMonth() + 1;
+                    let startMonth = currentMonth - 2;
+                    if (startMonth <= 0) startMonth += 12;
 
-                // 6月が1、7月が2、...、5月が12になるような順序を作る
-                let order = month - startMonth + 1;
-                if (order <= 0) order += 12;
-                return order;
+                    const getMonthOrder = (month) => {
+                        let order = month - startMonth + 1;
+                        if (order <= 0) order += 12;
+                        return order;
+                    };
+                    valA = getMonthOrder(a.fiscal_month);
+                    valB = getMonthOrder(b.fiscal_month);
+                    
+                    // If months are different, sort by month
+                    if (valA !== valB) {
+                        return (valA - valB) * direction;
+                    }
+                    
+                    // If months are same, secondary sort by unattendedMonths (always descending)
+                    const unattendedA = parseInt(a.unattendedMonths.replace('ヶ月', '')) || 0;
+                    const unattendedB = parseInt(b.unattendedMonths.replace('ヶ月', '')) || 0;
+                    return unattendedB - unattendedA;
+
+                case 'id':
+                    valA = a.id;
+                    valB = b.id;
+                    break;
+                case 'unattendedMonths':
+                    valA = parseInt(a.unattendedMonths.replace('ヶ月', '')) || 0;
+                    valB = parseInt(b.unattendedMonths.replace('ヶ月', '')) || 0;
+                    break;
+                case 'updated_at':
+                    valA = new Date(a.updated_at || 0);
+                    valB = new Date(b.updated_at || 0);
+                    break;
+                default: // name, staff_name, accounting_method, status
+                    valA = (a[currentSortKey] || '').toString().toLowerCase();
+                    valB = (b[currentSortKey] || '').toString().toLowerCase();
+                    break;
             }
 
-            const orderA = getMonthOrder(a.fiscal_month);
-            const orderB = getMonthOrder(b.fiscal_month);
-
-            if (orderA !== orderB) {
-                return orderA - orderB;
+            // Perform the comparison
+            if (valA < valB) {
+                return -1 * direction;
             }
-
-            // 決算月が同じ場合、未入力期間で比較（降順：長い期間が上）
-            const unattendedA = parseInt(a.unattendedMonths.replace('ヶ月', ''));
-            const unattendedB = parseInt(b.unattendedMonths.replace('ヶ月', ''));
-
-            return unattendedB - unattendedA; // 降順
+            if (valA > valB) {
+                return 1 * direction;
+            }
+            return 0;
         });
 
         updateSortIcons();
