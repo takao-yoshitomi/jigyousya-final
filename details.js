@@ -480,29 +480,34 @@ document.addEventListener('DOMContentLoaded', async () => {
             return;
         }
 
-        // Generate table header
-        let headerHtml = '<tr><th>月</th>';
-        tasks.forEach(task => {
-            headerHtml += `<th>${task}</th>`;
+        // Generate table header - 月を列として表示
+        let headerHtml = '<tr><th>項目</th>';
+        monthsToDisplay.forEach(monthInfo => {
+            headerHtml += `<th>${monthInfo.display}</th>`;
         });
-        headerHtml += '<th>進捗</th></tr>';
+        headerHtml += '<th>完了月数</th></tr>';
         detailsTableHead.innerHTML = headerHtml;
 
-        // Generate table body
+        // Collect all month data first
+        const allMonthData = {};
+        for (const monthInfo of monthsToDisplay) {
+            allMonthData[monthInfo.key] = await getMonthlyTask(clientId, monthInfo.key);
+        }
+
+        // Generate table body - タスクを行として表示
         let bodyHtml = '';
         
-        for (const monthInfo of monthsToDisplay) {
-            const monthData = await getMonthlyTask(clientId, monthInfo.key);
+        tasks.forEach(taskName => {
+            let rowHtml = `<tr><td><strong>${taskName}</strong></td>`;
             
-            let rowHtml = `<tr><td>${monthInfo.display}</td>`;
-            
-            let completedCount = 0;
-            tasks.forEach(taskName => {
+            let completedMonthCount = 0;
+            monthsToDisplay.forEach(monthInfo => {
+                const monthData = allMonthData[monthInfo.key];
                 const isChecked = monthData.tasks[taskName] === true;
-                if (isChecked) completedCount++;
+                if (isChecked) completedMonthCount++;
                 
                 rowHtml += `
-                    <td>
+                    <td style="text-align: center;">
                         <input type="checkbox" 
                                data-month="${monthInfo.key}" 
                                data-task="${taskName}"
@@ -512,14 +517,15 @@ document.addEventListener('DOMContentLoaded', async () => {
                 `;
             });
             
-            // Progress column
-            const progressText = tasks.length > 0 ? `${completedCount}/${tasks.length}` : '0/0';
-            const progressClass = completedCount === tasks.length && tasks.length > 0 ? 'progress-complete' : '';
-            rowHtml += `<td class="${progressClass}">${progressText}</td>`;
+            // Progress column - 完了月数/総月数
+            const totalMonths = monthsToDisplay.length;
+            const progressText = `${completedMonthCount}/${totalMonths}`;
+            const progressClass = completedMonthCount === totalMonths ? 'progress-complete' : '';
+            rowHtml += `<td class="${progressClass}" style="text-align: center;">${progressText}</td>`;
             
             rowHtml += '</tr>';
             bodyHtml += rowHtml;
-        }
+        });
         
         detailsTableBody.innerHTML = bodyHtml;
 
