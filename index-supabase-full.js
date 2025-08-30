@@ -195,18 +195,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Initial Setup ---
     async function initializeApp() {
+        console.log('[Main] Starting application initialization...');
+        
         // Add auth event listeners first
         addAuthEventListeners();
         
-        // Check authentication state
-        const isAuthenticated = await checkAuthState();
+        // For testing: Skip authentication and load app directly
+        console.log('[Main] Skipping authentication for testing - loading app directly');
         
-        // Only initialize app if authenticated
-        if (!isAuthenticated) {
-            console.log('User not authenticated, waiting for login...');
-            return;
-        }
-
         setupTableHeaders();
         addEventListeners();
         populateMonthThresholds();
