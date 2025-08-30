@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>顧客進捗管理 - メイン画面</title>
+    <title>顧客進捗管理 - メイン画面（Supabase版）</title>
     
-    <!-- Vercel最適化: プリロードでパフォーマンス向上 -->
+    <!-- Preload resources for better performance -->
     <link rel="preload" href="style.css" as="style">
     <link rel="preload" href="custom-dropdown.css" as="style">
-    <link rel="preload" href="config.js" as="script">
-    <link rel="preload" href="index.js" as="script">
+    <link rel="preload" href="supabase-client.js" as="script">
+    <link rel="preload" href="index-supabase-full.js" as="script">
     
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="custom-dropdown.css">
@@ -37,7 +37,10 @@
     </div>
 
     <div class="container">
-        <h1>顧客進捗管理 - メイン画面 <span id="user-id-display" style="font-size: 0.6em; color: #666; font-weight: normal;"></span></h1>
+        <h1>顧客進捗管理 - メイン画面（Supabase版）</h1>
+        <div id="connection-status" style="margin-bottom: 10px; padding: 10px; border-radius: 4px; display: none;">
+            <span id="status-text"></span>
+        </div>
 
         <div class="controls">
             <input type="text" id="search-input" placeholder="事業所名または担当者名で検索">
@@ -165,8 +168,152 @@
         </div>
     </div>
 
+    <!-- 認証モーダル -->
+    <div id="auth-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:2000; backdrop-filter: blur(5px);">
+        <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:white; padding:3rem; border-radius:12px; text-align:center; min-width:400px; box-shadow:0 10px 25px rgba(0,0,0,0.3);">
+            <div style="font-size: 48px; margin-bottom: 20px;">🔐</div>
+            <h2 style="margin-bottom: 10px; color: #333;">事業者管理システム</h2>
+            <p style="color: #666; margin-bottom: 30px; line-height: 1.5;">
+                このアプリを使用するには<br>
+                Googleアカウントでログインが必要です
+            </p>
+            <button id="signin-button" style="background: linear-gradient(45deg, #4285f4, #34a853); color:white; border:none; padding:15px 30px; border-radius:8px; cursor:pointer; font-size:16px; font-weight:bold; box-shadow:0 4px 15px rgba(66,133,244,0.3); transition:transform 0.2s;">
+                <span style="margin-right: 10px;">🚀</span>
+                Googleでログイン
+            </button>
+            <div id="auth-status" style="margin-top: 20px; padding: 10px; border-radius: 4px; display: none;">
+                <span id="auth-status-text"></span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ユーザー情報表示エリア -->
+    <div id="user-info" style="display:none; position:fixed; top:15px; right:15px; background:white; padding:12px 16px; border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.15); z-index:1000; border: 1px solid #e1e5e9;">
+        <div style="display: flex; align-items: center; gap: 12px;">
+            <img id="user-avatar" src="" alt="" style="width: 32px; height: 32px; border-radius: 50%; display: none;">
+            <div>
+                <div id="user-name" style="font-weight: bold; font-size: 14px; color: #333;"></div>
+                <div id="user-email" style="font-size: 12px; color: #666;"></div>
+            </div>
+            <button id="signout-button" style="background:#dc3545; color:white; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; font-size:12px; font-weight:bold;">
+                ログアウト
+            </button>
+        </div>
+    </div>
+
+    <!-- Loading indicator -->
+    <div id="loading-indicator" style="position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: rgba(255, 255, 255, 0.9); padding: 20px; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); z-index: 1000; display: none;">
+        <div style="text-align: center;">
+            <div class="loading-spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 10px;"></div>
+            <div>Supabaseからデータを読み込み中...</div>
+        </div>
+    </div>
+
+    <style>
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        #connection-status {
+            font-weight: bold;
+        }
+        
+        #connection-status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        #connection-status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        #connection-status.warning {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeaa7;
+        }
+
+        .task-item, .staff-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 10px;
+            gap: 10px;
+        }
+        
+        .task-item input, .staff-item input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        
+        .delete-task-button, .delete-staff-button {
+            padding: 6px 12px;
+            background-color: #dc3545;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        .delete-task-button:hover, .delete-staff-button:hover {
+            background-color: #c82333;
+        }
+
+        .task-column {
+            flex: 1;
+            padding: 0 20px;
+        }
+
+        .task-list-container {
+            min-height: 200px;
+            max-height: 400px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+            margin-bottom: 15px;
+        }
+
+        .add-task-section {
+            display: flex;
+            gap: 10px;
+        }
+
+        .add-task-section input {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+
+        .add-task-section button {
+            padding: 8px 16px;
+            background-color: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        .add-task-section button:hover {
+            background-color: #0056b3;
+        }
+
+        .default-tasks-container {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+    </style>
+
     <script src="custom-dropdown.js"></script>
-    <script src="config.js"></script>
-    <script src="index.js"></script>
+    <script src="https://unpkg.com/@supabase/supabase-js@2"></script>
+    
+    <script type="module" src="index.js"></script>
 </body>
 </html>

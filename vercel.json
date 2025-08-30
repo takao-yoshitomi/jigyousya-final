@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/index-supabase-complete.html"
+      "destination": "/index.html"
     }
   ],
   "headers": [

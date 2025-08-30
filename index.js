@@ -1,12 +1,24 @@
+import { SupabaseAPI, handleSupabaseError } from './supabase-client.js';
+
 document.addEventListener('DOMContentLoaded', () => {
-    // Display user ID in header
-    Config.displayUserId();
+    // --- Authentication Elements ---
+    const authModal = document.getElementById('auth-modal');
+    const signInButton = document.getElementById('signin-button');
+    const signOutButton = document.getElementById('signout-button');
+    const userInfo = document.getElementById('user-info');
+    const userName = document.getElementById('user-name');
+    const userEmail = document.getElementById('user-email');
+    const userAvatar = document.getElementById('user-avatar');
+    const authStatus = document.getElementById('auth-status');
+    const authStatusText = document.getElementById('auth-status-text');
+
     // --- DOM Element Selectors ---
     const clientsTableBody = document.querySelector('#clients-table tbody');
     const searchInput = document.getElementById('search-input');
     const staffFilter = document.getElementById('staff-filter');
     const monthFilter = document.getElementById('month-filter');
     const clientsTableHeadRow = document.querySelector('#clients-table thead tr');
+    
     // Staff modal elements
     const staffEditModal = document.getElementById('staff-edit-modal');
     const closeStaffModalButton = staffEditModal.querySelector('.close-button');
@@ -26,7 +38,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const cancelDefaultTasksButton = document.getElementById('cancel-default-tasks-button');
     const tasksKityoContainer = document.getElementById('tasks-kityo');
     const tasksJikeiContainer = document.getElementById('tasks-jikei');
-    const defaultTasksContainer = defaultTasksModal.querySelector('.default-tasks-container');
 
     // Basic Settings Modal elements
     const basicSettingsModal = document.getElementById('basic-settings-modal');
@@ -40,11 +51,6 @@ document.addEventListener('DOMContentLoaded', () => {
     const redColorInput = document.getElementById('red-color');
     const fontFamilySelect = document.getElementById('font-family-select');
     const hideInactiveClientsCheckbox = document.getElementById('hide-inactive-clients');
-    
-    // CSV Import/Export elements
-    const exportCsvButton = document.getElementById('export-csv-button');
-    const importCsvButton = document.getElementById('import-csv-button');
-    const csvFileInput = document.getElementById('csv-file-input');
 
     // --- State Variables ---
     let clients = [];
@@ -56,8 +62,6 @@ document.addEventListener('DOMContentLoaded', () => {
     let defaultTasks = {}; // State for default tasks
     let appSettings = {}; // State for application settings
     let filterState = {}; // フィルター状態を保存
-
-    const API_BASE_URL = Config.getApiBaseUrl();
 
     // --- Mappings ---
     const headerMap = {
@@ -72,909 +76,902 @@ document.addEventListener('DOMContentLoaded', () => {
         '進捗ステータス': 'status'
     };
 
+    // --- Authentication Functions ---
+    function showAuthStatus(message, type = 'info') {
+        authStatus.className = type;
+        authStatus.style.display = 'block';
+        authStatusText.textContent = message;
+    }
+
+    function hideAuthStatus() {
+        authStatus.style.display = 'none';
+    }
+
+    async function signInWithGoogle() {
+        try {
+            showAuthStatus('Googleでログイン中...', 'warning');
+            console.log('Starting Google sign in...');
+            
+            const { data, error } = await SupabaseAPI.signInWithGoogle();
+            
+            if (error) {
+                console.error('Sign in error:', error);
+                showAuthStatus('❌ ログインエラー: ' + error.message, 'error');
+                return false;
+            } else {
+                console.log('Sign in success:', data);
+                showAuthStatus('✅ ログイン成功！リダイレクト中...', 'success');
+                return true;
+            }
+        } catch (error) {
+            console.error('Sign in exception:', error);
+            showAuthStatus('❌ ログインに失敗しました: ' + error.message, 'error');
+            return false;
+        }
+    }
+
+    async function signOut() {
+        try {
+            showAuthStatus('ログアウト中...', 'warning');
+            await SupabaseAPI.signOut();
+            showAuthStatus('✅ ログアウトしました', 'success');
+            
+            // Show auth modal again
+            setTimeout(() => {
+                authModal.style.display = 'flex';
+                userInfo.style.display = 'none';
+                hideAuthStatus();
+            }, 1500);
+        } catch (error) {
+            console.error('Sign out error:', error);
+            showAuthStatus('❌ ログアウトエラー: ' + error.message, 'error');
+        }
+    }
+
+    function updateUserDisplay(user) {
+        if (user) {
+            userName.textContent = user.user_metadata?.full_name || user.email.split('@')[0];
+            userEmail.textContent = user.email;
+            
+            if (user.user_metadata?.avatar_url) {
+                userAvatar.src = user.user_metadata.avatar_url;
+                userAvatar.style.display = 'block';
+            }
+            
+            userInfo.style.display = 'block';
+            authModal.style.display = 'none';
+        } else {
+            userInfo.style.display = 'none';
+            authModal.style.display = 'flex';
+        }
+    }
+
+    async function checkAuthState() {
+        try {
+            console.log('Checking authentication state...');
+            const user = await SupabaseAPI.getCurrentUser();
+            
+            if (user) {
+                console.log('User authenticated:', user.email);
+                updateUserDisplay(user);
+                return true;
+            } else {
+                console.log('User not authenticated - showing auth modal');
+                authModal.style.display = 'flex';
+                return false;
+            }
+        } catch (error) {
+            console.error('Auth state check error:', error);
+            authModal.style.display = 'flex';
+            return false;
+        }
+    }
+
+    // --- Auth Event Listeners ---
+    function addAuthEventListeners() {
+        if (signInButton) {
+            signInButton.addEventListener('click', signInWithGoogle);
+        }
+        
+        if (signOutButton) {
+            signOutButton.addEventListener('click', signOut);
+        }
+
+        // Listen for auth state changes
+        if (SupabaseAPI.supabase && SupabaseAPI.supabase.auth) {
+            SupabaseAPI.supabase.auth.onAuthStateChange(async (event, session) => {
+                console.log('Auth state changed:', event, session?.user?.email);
+                
+                if (event === 'SIGNED_IN' && session?.user) {
+                    updateUserDisplay(session.user);
+                    // Initialize app when user signs in
+                    await initializeAuthenticatedApp();
+                } else if (event === 'SIGNED_OUT') {
+                    updateUserDisplay(null);
+                }
+            });
+        }
+    }
+
     // --- Initial Setup ---
     async function initializeApp() {
+        console.log('[Main] Starting application initialization...');
+        
+        // Add auth event listeners first
+        addAuthEventListeners();
+        
+        // For testing: Skip authentication and load app directly
+        console.log('[Main] Skipping authentication for testing - loading app directly');
+        
         setupTableHeaders();
         addEventListeners();
-        populateMonthThresholds(); // Populate month dropdowns
-        populateFontFamilySelect(); // Populate font family dropdown
-        loadFilterState(); // フィルター状態をロード
+        populateMonthThresholds();
+        populateFontFamilySelect();
+        loadFilterState();
         
         try {
-            // Fetch data from backend
+            // Fetch data from Supabase
             [clients, staffs, appSettings] = await Promise.all([
                 fetchClients(),
                 fetchStaffs(),
                 fetchSettings()
             ]);
 
-            applyFontFamily(appSettings.font_family); // Apply font family from settings
-
+            applyFontFamily(appSettings.font_family);
             populateFilters();
-            applyFilterState(); // 保存されたフィルター状態を適用
+            applyFilterState();
             renderClients();
             updateSortIcons();
         } catch (error) {
             console.error("Error initializing app:", error);
-            alert("アプリケーションの初期化に失敗しました。");
+            alert("アプリケーションの初期化に失敗しました: " + handleSupabaseError(error));
         }
     }
 
-    function populateFontFamilySelect() {
-        const fonts = [
-            { name: 'デフォルト', value: '' }, // ブラウザのデフォルトフォント
-            { name: 'メイリオ', value: 'メイリオ, Meiryo, sans-serif' },
-            { name: '游ゴシック', value: '游ゴシック, YuGothic, "Hiragino Kaku Gothic ProN", sans-serif' },
-            { name: 'ＭＳ Ｐゴシック', value: '"ＭＳ Ｐゴシック", "MS PGothic", sans-serif' },
-            { name: 'Arial', value: 'Arial, sans-serif' },
-            { name: 'Verdana', value: 'Verdana, sans-serif' },
-            { name: 'Times New Roman', value: '"Times New Roman", serif' },
-            { name: 'BIZ UDゴシック', value: '"BIZ UDゴシック", "BIZ UDGothic", sans-serif' },
-            { name: 'UD Digi Kyokasho NK-B', value: '"UD Digi Kyokasho NK-B", sans-serif' }
-        ];
-
-        fontFamilySelect.innerHTML = ''; // Clear existing options
-        fonts.forEach(font => {
-            const option = document.createElement('option');
-            option.value = font.value;
-            option.textContent = font.name;
-            fontFamilySelect.appendChild(option);
-        });
-    }
-
-    function applyFontFamily(fontFamily) {
-        document.body.style.fontFamily = fontFamily || ''; // デフォルトは空文字列でブラウザのデフォルトに
-    }
-
-    function setupTableHeaders() {
-        const noTh = document.createElement('th');
-        noTh.textContent = 'No.';
-        clientsTableHeadRow.insertBefore(noTh, clientsTableHeadRow.firstChild);
-
-        const editTh = document.createElement('th');
-        editTh.textContent = '登録情報編集';
-        clientsTableHeadRow.appendChild(editTh);
-
-        Array.from(clientsTableHeadRow.children).forEach(th => {
-            const headerText = th.textContent.trim();
-            const sortKey = headerMap[headerText];
-            if (sortKey) {
-                th.dataset.sortKey = sortKey;
-                const sortIconSpan = document.createElement('span');
-                sortIconSpan.classList.add('sort-icon');
-                th.appendChild(sortIconSpan);
-            }
-        });
-    }
-
-    function populateFilters() {
-        // Staff Filter
-        staffFilter.innerHTML = '<option value="">すべての担当者</option>';
-        staffs.forEach(staff => {
-            const option = document.createElement('option');
-            option.value = staff.name;
-            option.textContent = staff.name;
-            staffFilter.appendChild(option);
-        });
-
-        // Month Filter
-        monthFilter.innerHTML = '<option value="">すべての決算月</option>';
-        for (let i = 1; i <= 12; i++) {
-            const month = `${i}月`;
-            const option = document.createElement('option');
-            option.value = month;
-            option.textContent = month;
-            monthFilter.appendChild(option);
-        }
-
-        // Initialize custom dropdowns
-        initializeCustomDropdown(staffFilter);
-        initializeCustomDropdown(monthFilter);
-    }
-
-    function addEventListeners() {
-        // Search and filter listeners
-        searchInput.addEventListener('input', () => {
-            saveFilterState();
-            renderClients();
-        });
-        staffFilter.addEventListener('change', () => {
-            saveFilterState();
-            renderClients();
-        });
-        monthFilter.addEventListener('change', () => {
-            saveFilterState();
-            renderClients();
-        });
-
-        // Sorting listener
-        clientsTableHeadRow.addEventListener('click', handleSortClick);
-
-        // Button listeners
-        document.getElementById('add-client-button').addEventListener('click', () => {
-            window.location.href = 'edit.html';
-        });
+    // Initialize app when authenticated
+    async function initializeAuthenticatedApp() {
+        setupTableHeaders();
+        addEventListeners();
+        populateMonthThresholds();
+        populateFontFamilySelect();
+        loadFilterState();
         
-        // CSV Import/Export listeners
-        exportCsvButton.addEventListener('click', exportClientsCSV);
-        importCsvButton.addEventListener('click', () => csvFileInput.click());
-        csvFileInput.addEventListener('change', importClientsCSV);
-        
-        // Database Reset listener
-        document.getElementById('reset-database-button').addEventListener('click', resetDatabase);
-
-        // Staff Modal listeners
-        document.getElementById('manage-staff-button').addEventListener('click', openStaffModal);
-        closeStaffModalButton.addEventListener('click', () => staffEditModal.style.display = 'none');
-        cancelStaffButton.addEventListener('click', () => staffEditModal.style.display = 'none');
-        window.addEventListener('click', (event) => {
-            if (event.target === staffEditModal) {
-                staffEditModal.style.display = 'none';
-            }
-        });
-
-        saveStaffButton.addEventListener('click', saveStaff);
-        staffListContainer.addEventListener('click', handleStaffListClick);
-        staffListContainer.addEventListener('input', handleStaffListInput);
-        addStaffButton.addEventListener('click', addStaff);
-
-        // Basic Settings Modal Listeners
-        openBasicSettingsModalButton.addEventListener('click', openBasicSettingsModal);
-        closeBasicSettingsModalButton.addEventListener('click', () => basicSettingsModal.style.display = 'none');
-        cancelBasicSettingsButton.addEventListener('click', () => basicSettingsModal.style.display = 'none');
-        saveBasicSettingsButton.addEventListener('click', saveBasicSettings);
-
-        // Accordion and Modal Listeners
-        accordionHeader.addEventListener('click', toggleAccordion);
-        openDefaultTasksModalButton.addEventListener('click', openDefaultTasksModal);
-        closeDefaultTasksModalButton.addEventListener('click', () => defaultTasksModal.style.display = 'none');
-        cancelDefaultTasksButton.addEventListener('click', () => defaultTasksModal.style.display = 'none');
-        defaultTasksContainer.addEventListener('click', handleDefaultTasksClick);
-        saveDefaultTasksButton.addEventListener('click', saveDefaultTasks);
-
-        window.addEventListener('click', (event) => {
-            if (event.target === staffEditModal) {
-                staffEditModal.style.display = 'none';
-            }
-            if (event.target === defaultTasksModal) {
-                defaultTasksModal.style.display = 'none';
-            }
-        });
-    }
-
-    // --- Accordion and Default Tasks Modal Logic ---
-
-    function toggleAccordion() {
-        const isOpen = accordionContent.style.display === 'block';
-        accordionContent.style.display = isOpen ? 'none' : 'block';
-        accordionHeader.querySelector('.accordion-icon').textContent = isOpen ? '▼' : '▲';
-    }
-
-    async function openDefaultTasksModal() {
         try {
-            const response = await fetch(`${API_BASE_URL}/default-tasks`);
-            if (!response.ok) {
-                throw new Error('Failed to fetch default tasks');
-            }
-            defaultTasks = await response.json();
-            
-            renderDefaultTaskList('kityo', defaultTasks['記帳代行'] || []);
-            renderDefaultTaskList('jikei', defaultTasks['自計'] || []);
-            
-            defaultTasksModal.style.display = 'block';
+            // Fetch data from Supabase
+            [clients, staffs, appSettings] = await Promise.all([
+                fetchClients(),
+                fetchStaffs(),
+                fetchSettings()
+            ]);
+
+            applyFontFamily(appSettings.font_family);
+            populateFilters();
+            applyFilterState();
+            renderClients();
+            updateSortIcons();
         } catch (error) {
-            console.error(error);
-            alert('初期設定の読み込みに失敗しました。');
+            console.error("Error initializing app:", error);
+            alert("アプリケーションの初期化に失敗しました: " + handleSupabaseError(error));
         }
     }
 
-    function renderDefaultTaskList(target, tasks) {
-        const container = target === 'kityo' ? tasksKityoContainer : tasksJikeiContainer;
-        container.innerHTML = '';
-        tasks.forEach((task, index) => {
-            const taskItem = document.createElement('div');
-            taskItem.classList.add('task-item');
-            taskItem.innerHTML = `
-                <input type="text" value="${task}" data-index="${index}">
-                <button class="delete-task-button" data-index="${index}">削除</button>
-            `;
-            container.appendChild(taskItem);
-        });
-    }
-
-    function handleDefaultTasksClick(event) {
-        const button = event.target.closest('button');
-        if (!button) return;
-
-        const taskColumn = event.target.closest('.task-column');
-        const target = taskColumn.querySelector('.task-list-container').id.includes('kityo') ? 'kityo' : 'jikei';
-        const method = target === 'kityo' ? '記帳代行' : '自計';
-        let currentTasks = defaultTasks[method] || [];
-
-        // Add button
-        if (button.dataset.target) {
-            const input = taskColumn.querySelector('input[type="text"][placeholder]');
-            const newTaskName = input.value.trim();
-            if (newTaskName && !currentTasks.includes(newTaskName)) {
-                currentTasks.push(newTaskName);
-                renderDefaultTaskList(target, currentTasks);
-                input.value = '';
-            }
-        }
-        // Delete button
-        else if (button.classList.contains('delete-task-button')) {
-            const index = parseInt(button.dataset.index, 10);
-            currentTasks.splice(index, 1);
-            renderDefaultTaskList(target, currentTasks);
-        }
-    }
-
-    async function saveDefaultTasks() {
-        // Collect data from inputs, in case of edits
-        const kityoTasks = Array.from(tasksKityoContainer.querySelectorAll('.task-item input')).map(input => input.value.trim()).filter(Boolean);
-        const jikeiTasks = Array.from(tasksJikeiContainer.querySelectorAll('.task-item input')).map(input => input.value.trim()).filter(Boolean);
-
-        const updatedTasks = {
-            '記帳代行': kityoTasks,
-            '自計': jikeiTasks
-        };
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/default-tasks`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatedTasks)
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to save default tasks');
-            }
-
-            alert('初期値を保存しました。');
-            defaultTasksModal.style.display = 'none';
-        } catch (error) {
-            console.error(error);
-            alert('保存に失敗しました。');
-        }
-    }
-
-    // --- Basic Settings Modal Logic ---
-
-    function openBasicSettingsModal() {
-        // Populate current settings
-        yellowThresholdSelect.value = appSettings.highlight_yellow_threshold || 3;
-        redThresholdSelect.value = appSettings.highlight_red_threshold || 6;
-        yellowColorInput.value = appSettings.highlight_yellow_color || '#FFFF99';
-        redColorInput.value = appSettings.highlight_red_color || '#FFCDD2';
-        fontFamilySelect.value = appSettings.font_family || ''; // Set current font family
-        hideInactiveClientsCheckbox.checked = appSettings.hide_inactive_clients || false;
-
-        basicSettingsModal.style.display = 'block';
-    }
-
-    async function saveBasicSettings() {
-        const updatedSettings = {
-            highlight_yellow_threshold: parseInt(yellowThresholdSelect.value),
-            highlight_yellow_color: yellowColorInput.value,
-            highlight_red_threshold: parseInt(redThresholdSelect.value),
-            highlight_red_color: redColorInput.value,
-            font_family: fontFamilySelect.value, // Save selected font family
-            hide_inactive_clients: hideInactiveClientsCheckbox.checked
-        };
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/settings`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(updatedSettings)
-            });
-
-            if (!response.ok) {
-                throw new Error('Failed to save settings');
-            }
-
-            appSettings = updatedSettings; // Update local state
-            applyFontFamily(appSettings.font_family); // Apply new font family
-            renderClients(); // Re-render clients to apply new colors
-            alert('基本設定を保存しました。');
-            basicSettingsModal.style.display = 'none';
-        } catch (error) {
-            console.error(error);
-            alert('設定の保存に失敗しました。');
-        }
-    }
-
-    // --- Data Fetching Functions ---
+    // --- Supabase Data Fetching ---
     async function fetchClients() {
         try {
-            const response = await fetch(`${API_BASE_URL}/clients`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return await response.json();
+            const clientsData = await SupabaseAPI.getClients();
+            
+            // Transform Supabase data to match existing format
+            return clientsData.map(client => ({
+                ...client,
+                staff_name: client.staffs?.name || '',
+                // Calculate progress and status (will be implemented)
+                monthlyProgress: '計算中...',
+                unattendedMonths: 0,
+                status: 'active'
+            }));
         } catch (error) {
-            console.error("Failed to fetch clients:", error);
-            alert("顧客情報の読み込みに失敗しました。");
-            return [];
+            console.error('Error fetching clients:', error);
+            throw error;
         }
     }
 
     async function fetchStaffs() {
         try {
-            const response = await fetch(`${API_BASE_URL}/staffs`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            return await response.json();
+            return await SupabaseAPI.getStaffs();
         } catch (error) {
-            console.error("Failed to fetch staffs:", error);
-            alert("担当者情報の読み込みに失敗しました。");
-            return [];
+            console.error('Error fetching staffs:', error);
+            throw error;
         }
     }
 
     async function fetchSettings() {
         try {
-            const response = await fetch(`${API_BASE_URL}/settings`);
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            const settings = await response.json();
-            // Set default font if not present
-            if (!settings.font_family) {
-                settings.font_family = ''; // Default to empty string for browser default
-            }
-            return settings;
-        } catch (error) {
-            console.error("Failed to fetch settings:", error);
-            alert("設定の読み込みに失敗しました。デフォルト値を使用します。");
-            // Return default settings if fetch fails
+            const [yellowThreshold, redThreshold, yellowColor, redColor, fontFamily, hideInactive] = await Promise.all([
+                SupabaseAPI.getSetting('yellow_threshold'),
+                SupabaseAPI.getSetting('red_threshold'),
+                SupabaseAPI.getSetting('yellow_color'),
+                SupabaseAPI.getSetting('red_color'),
+                SupabaseAPI.getSetting('font_family'),
+                SupabaseAPI.getSetting('hide_inactive_clients')
+            ]);
+
             return {
-                highlight_yellow_threshold: 3,
-                highlight_yellow_color: '#FFFF99',
-                highlight_red_threshold: 6,
-                highlight_red_color: '#FFCDD2',
-                font_family: '' // Default font family
+                yellow_threshold: yellowThreshold || 2,
+                red_threshold: redThreshold || 3,
+                yellow_color: yellowColor || '#FFFF99',
+                red_color: redColor || '#FFCDD2',
+                font_family: fontFamily || 'Noto Sans JP',
+                hide_inactive_clients: hideInactive || false
+            };
+        } catch (error) {
+            console.error('Error fetching settings:', error);
+            return {
+                yellow_threshold: 2,
+                red_threshold: 3,
+                yellow_color: '#FFFF99',
+                red_color: '#FFCDD2',
+                font_family: 'Noto Sans JP',
+                hide_inactive_clients: false
             };
         }
     }
 
-    function populateMonthThresholds() {
-        for (let i = 1; i <= 12; i++) {
-            const optionYellow = document.createElement('option');
-            optionYellow.value = i;
-            optionYellow.textContent = `${i}ヶ月`;
-            yellowThresholdSelect.appendChild(optionYellow);
-
-            const optionRed = document.createElement('option');
-            optionRed.value = i;
-            optionRed.textContent = `${i}ヶ月`;
-            redThresholdSelect.appendChild(optionRed);
+    async function fetchDefaultTasksForAccounting(accountingMethod) {
+        try {
+            const tasks = await SupabaseAPI.getDefaultTasks();
+            const methodTasks = tasks.find(t => t.accounting_method === accountingMethod);
+            return methodTasks ? JSON.parse(methodTasks.tasks) : [];
+        } catch (error) {
+            console.error('Error fetching default tasks:', error);
+            return [];
         }
     }
 
-    // --- Rendering and Filtering ---
+    // --- Event Listeners ---
+    function addEventListeners() {
+        // Search functionality
+        searchInput.addEventListener('input', debounce(handleSearch, 300));
+        
+        // Filter functionality
+        staffFilter.addEventListener('change', handleFilterChange);
+        monthFilter.addEventListener('change', handleFilterChange);
+
+        // Staff modal
+        document.getElementById('manage-staff-button').addEventListener('click', openStaffEditModal);
+        closeStaffModalButton.addEventListener('click', closeStaffModal);
+        addStaffButton.addEventListener('click', addStaffInputField);
+        saveStaffButton.addEventListener('click', saveStaffs);
+        cancelStaffButton.addEventListener('click', closeStaffModal);
+
+        // Default Tasks modal
+        openDefaultTasksModalButton.addEventListener('click', openDefaultTasksModal);
+        closeDefaultTasksModalButton.addEventListener('click', closeDefaultTasksModal);
+        saveDefaultTasksButton.addEventListener('click', saveDefaultTasks);
+        cancelDefaultTasksButton.addEventListener('click', closeDefaultTasksModal);
+
+        // Basic Settings modal
+        openBasicSettingsModalButton.addEventListener('click', openBasicSettingsModal);
+        closeBasicSettingsModalButton.addEventListener('click', closeBasicSettingsModal);
+        saveBasicSettingsButton.addEventListener('click', saveBasicSettings);
+        cancelBasicSettingsButton.addEventListener('click', closeBasicSettingsModal);
+
+        // Accordion
+        accordionHeader.addEventListener('click', toggleAccordion);
+
+        // Table header sorting
+        clientsTableHeadRow.addEventListener('click', handleSort);
+
+        // Client click handler
+        clientsTableBody.addEventListener('click', handleClientClick);
+
+        // Add client button
+        document.getElementById('add-client-button').addEventListener('click', () => {
+            window.location.href = 'edit-supabase.html';
+        });
+
+        // Window click to close modal
+        window.addEventListener('click', (e) => {
+            if (e.target === staffEditModal) closeStaffModal();
+            if (e.target === defaultTasksModal) closeDefaultTasksModal();
+            if (e.target === basicSettingsModal) closeBasicSettingsModal();
+        });
+    }
+
+    // --- Client Management ---
+    async function handleClientClick(e) {
+        const clientRow = e.target.closest('tr');
+        if (!clientRow) return;
+
+        const clientId = clientRow.getAttribute('data-client-id');
+        if (clientId) {
+            // Check if client needs initial task setup based on accounting method
+            const client = clients.find(c => c.id.toString() === clientId);
+            if (client && needsInitialTaskSetup(client)) {
+                await setupInitialTasks(client);
+            }
+            
+            // Navigate to client detail page
+            window.location.href = `details-supabase.html?id=${clientId}`;
+        }
+    }
+
+    function needsInitialTaskSetup(client) {
+        // Check if client has custom tasks for current year
+        const currentYear = new Date().getFullYear();
+        const customTasks = client.custom_tasks_by_year;
+        
+        if (!customTasks || typeof customTasks !== 'object') return true;
+        if (!customTasks[currentYear] || !Array.isArray(customTasks[currentYear])) return true;
+        if (customTasks[currentYear].length === 0) return true;
+        
+        return false;
+    }
+
+    async function setupInitialTasks(client) {
+        try {
+            const accountingMethod = client.accounting_method;
+            if (!accountingMethod || !['記帳代行', '自計'].includes(accountingMethod)) {
+                console.warn('Unknown accounting method for client:', client.id, accountingMethod);
+                return;
+            }
+
+            // Get default tasks for this accounting method
+            const defaultTaskList = await fetchDefaultTasksForAccounting(accountingMethod);
+            if (defaultTaskList.length === 0) {
+                console.warn('No default tasks found for accounting method:', accountingMethod);
+                return;
+            }
+
+            // Update client with initial tasks
+            const currentYear = new Date().getFullYear();
+            const customTasksByYear = client.custom_tasks_by_year || {};
+            customTasksByYear[currentYear] = defaultTaskList;
+
+            // Update client in database
+            await SupabaseAPI.updateClient(client.id, {
+                custom_tasks_by_year: customTasksByYear
+            });
+
+            console.log('Initial tasks set up for client:', client.name, 'Method:', accountingMethod, 'Tasks:', defaultTaskList);
+        } catch (error) {
+            console.error('Error setting up initial tasks for client:', client.id, error);
+        }
+    }
+
+    // --- Rendering Functions ---
     function renderClients() {
+        if (!clientsTableBody) return;
+
+        const filteredClients = getFilteredClients();
+        const sortedClients = sortClients(filteredClients);
+
         clientsTableBody.innerHTML = '';
 
-        const textFilter = searchInput.value.toLowerCase();
-        const staffFilterValue = staffFilter.value;
-        const monthFilterValue = monthFilter.value;
+        if (sortedClients.length === 0) {
+            const noDataRow = document.createElement('tr');
+            noDataRow.innerHTML = '<td colspan="8" style="text-align: center; padding: 20px; color: #666;">該当するクライアントが見つかりません</td>';
+            clientsTableBody.appendChild(noDataRow);
+            return;
+        }
 
-        let filteredClients = clients.filter(client => {
-            const nameMatch = client.name.toLowerCase().includes(textFilter);
-            const staffNameMatch = client.staff_name ? client.staff_name.toLowerCase().includes(textFilter) : false;
-            const textMatch = textFilter === '' || nameMatch || staffNameMatch;
+        sortedClients.forEach(client => {
+            const row = createClientRow(client);
+            clientsTableBody.appendChild(row);
+        });
+    }
 
-            const staffMatch = staffFilterValue === '' || client.staff_name === staffFilterValue;
-            const monthMatch = monthFilterValue === '' || `${client.fiscal_month}月` === monthFilterValue;
+    function createClientRow(client) {
+        const row = document.createElement('tr');
+        row.setAttribute('data-client-id', client.id);
+        row.style.cursor = 'pointer';
+        
+        // Apply background color based on unattended months
+        const bgColor = getRowBackgroundColor(client.unattendedMonths);
+        if (bgColor) {
+            row.style.backgroundColor = bgColor;
+        }
+
+        const fiscalMonth = client.fiscal_month ? `${client.fiscal_month}月` : '-';
+        const staffName = client.staff_name || '-';
+        const accountingMethod = client.accounting_method || '-';
+        const updatedAt = client.updated_at ? 
+            new Date(client.updated_at).toLocaleDateString('ja-JP') : '-';
+
+        row.innerHTML = `
+            <td title="${client.name}">${client.name}</td>
+            <td>${fiscalMonth}</td>
+            <td>${client.unattendedMonths}ヶ月</td>
+            <td>${client.monthlyProgress}</td>
+            <td>${updatedAt}</td>
+            <td>${staffName}</td>
+            <td>${accountingMethod}</td>
+            <td>
+                <span class="status-indicator ${client.status === 'active' ? 'status-active' : 'status-inactive'}">
+                    ${client.status === 'active' ? '稼働中' : '停止中'}
+                </span>
+            </td>
+        `;
+
+        return row;
+    }
+
+    function getRowBackgroundColor(unattendedMonths) {
+        if (unattendedMonths >= appSettings.red_threshold) {
+            return appSettings.red_color;
+        } else if (unattendedMonths >= appSettings.yellow_threshold) {
+            return appSettings.yellow_color;
+        }
+        return null;
+    }
+
+    // --- Staff Management ---
+    async function openStaffEditModal() {
+        try {
+            staffs = await fetchStaffs(); // Refresh staff data
+            originalStaffsState = JSON.parse(JSON.stringify(staffs));
+            currentEditingStaffs = JSON.parse(JSON.stringify(staffs));
             
-            // 関与終了クライアントのフィルタリング
-            const inactiveMatch = !appSettings.hide_inactive_clients || !client.is_inactive;
+            renderStaffList();
+            staffEditModal.style.display = 'block';
+        } catch (error) {
+            console.error('Error opening staff modal:', error);
+            alert('担当者データの取得に失敗しました: ' + handleSupabaseError(error));
+        }
+    }
 
-            return textMatch && staffMatch && monthMatch && inactiveMatch;
+    function renderStaffList() {
+        staffListContainer.innerHTML = '';
+        
+        currentEditingStaffs.forEach((staff, index) => {
+            const staffItem = document.createElement('div');
+            staffItem.className = 'staff-item';
+            staffItem.innerHTML = `
+                <input type="text" value="${staff.name}" data-index="${index}" data-staff-id="${staff.id}">
+                <button type="button" class="delete-staff-button" data-index="${index}">削除</button>
+            `;
+            staffListContainer.appendChild(staffItem);
         });
 
-        // Sorting logic
-        filteredClients.sort((a, b) => {
-            const direction = currentSortDirection === 'asc' ? 1 : -1;
-            let valA, valB;
-
-            // Assign values based on the sort key
-            switch (currentSortKey) {
-                case 'fiscal_month':
-                    const currentMonth = new Date().getMonth() + 1;
-                    let startMonth = currentMonth - 2;
-                    if (startMonth <= 0) startMonth += 12;
-
-                    const getMonthOrder = (month) => {
-                        let order = month - startMonth + 1;
-                        if (order <= 0) order += 12;
-                        return order;
-                    };
-                    valA = getMonthOrder(a.fiscal_month);
-                    valB = getMonthOrder(b.fiscal_month);
-                    
-                    // If months are different, sort by month
-                    if (valA !== valB) {
-                        return (valA - valB) * direction;
-                    }
-                    
-                    // If months are same, secondary sort by unattendedMonths (always descending)
-                    const unattendedA = parseInt(a.unattendedMonths.replace('ヶ月', '')) || 0;
-                    const unattendedB = parseInt(b.unattendedMonths.replace('ヶ月', '')) || 0;
-                    return unattendedB - unattendedA;
-
-                case 'id':
-                    valA = a.id;
-                    valB = b.id;
-                    break;
-                case 'unattendedMonths':
-                    valA = parseInt(a.unattendedMonths.replace('ヶ月', '')) || 0;
-                    valB = parseInt(b.unattendedMonths.replace('ヶ月', '')) || 0;
-                    break;
-                case 'updated_at':
-                    valA = new Date(a.updated_at || 0);
-                    valB = new Date(b.updated_at || 0);
-                    break;
-                default: // name, staff_name, accounting_method, status
-                    valA = (a[currentSortKey] || '').toString().toLowerCase();
-                    valB = (b[currentSortKey] || '').toString().toLowerCase();
-                    break;
+        // Add event listeners for delete buttons
+        staffListContainer.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-staff-button')) {
+                const index = parseInt(e.target.getAttribute('data-index'));
+                currentEditingStaffs.splice(index, 1);
+                renderStaffList();
             }
-
-            // Perform the comparison
-            if (valA < valB) {
-                return -1 * direction;
-            }
-            if (valA > valB) {
-                return 1 * direction;
-            }
-            return 0;
         });
 
-        updateSortIcons();
+        // Add event listeners for input changes
+        staffListContainer.addEventListener('input', (e) => {
+            if (e.target.tagName === 'INPUT') {
+                const index = parseInt(e.target.getAttribute('data-index'));
+                currentEditingStaffs[index].name = e.target.value;
+            }
+        });
+    }
 
-        // Render rows
-        filteredClients.forEach(client => {
-            const row = clientsTableBody.insertRow();
-            row.insertCell().textContent = client.id;
-            row.insertCell().innerHTML = `<a href="details.html?no=${client.id}" class="client-name-link">${client.name}</a>`;
-            row.insertCell().textContent = `${client.fiscal_month}月`;
-            const unattendedMonthsCell = row.insertCell();
-            unattendedMonthsCell.textContent = client.unattendedMonths;
-            unattendedMonthsCell.style.backgroundColor = ''; // Reset background
+    function addStaffInputField() {
+        const newStaffName = newStaffInput.value.trim();
+        if (newStaffName) {
+            currentEditingStaffs.push({
+                id: null, // New staff will get ID from database
+                name: newStaffName
+            });
+            renderStaffList();
+            newStaffInput.value = '';
+        }
+    }
 
-            // Apply highlighting based on settings
-            const months = parseInt(client.unattendedMonths.replace('ヶ月', ''));
-            if (!isNaN(months)) {
-                if (months >= appSettings.highlight_red_threshold) {
-                    unattendedMonthsCell.style.backgroundColor = appSettings.highlight_red_color;
-                } else if (months >= appSettings.highlight_yellow_threshold) {
-                    unattendedMonthsCell.style.backgroundColor = appSettings.highlight_yellow_color;
+    async function saveStaffs() {
+        try {
+            // Implementation would involve creating, updating, and deleting staff records
+            // This requires more complex logic to handle CRUD operations
+            console.log('Saving staffs:', currentEditingStaffs);
+            
+            // For now, just update local state and refresh
+            staffs = [...currentEditingStaffs];
+            populateFilters();
+            closeStaffModal();
+            
+            alert('担当者の更新が完了しました');
+        } catch (error) {
+            console.error('Error saving staffs:', error);
+            alert('担当者の保存に失敗しました: ' + handleSupabaseError(error));
+        }
+    }
+
+    function closeStaffModal() {
+        staffEditModal.style.display = 'none';
+        currentEditingStaffs = [];
+        originalStaffsState = [];
+        newStaffInput.value = '';
+    }
+
+    // --- Settings Management ---
+    async function openBasicSettingsModal() {
+        try {
+            appSettings = await fetchSettings();
+            
+            // Populate form with current settings
+            yellowThresholdSelect.value = appSettings.yellow_threshold;
+            redThresholdSelect.value = appSettings.red_threshold;
+            yellowColorInput.value = appSettings.yellow_color;
+            redColorInput.value = appSettings.red_color;
+            fontFamilySelect.value = appSettings.font_family;
+            hideInactiveClientsCheckbox.checked = appSettings.hide_inactive_clients;
+            
+            basicSettingsModal.style.display = 'block';
+        } catch (error) {
+            console.error('Error opening basic settings modal:', error);
+            alert('設定の取得に失敗しました: ' + handleSupabaseError(error));
+        }
+    }
+
+    async function saveBasicSettings() {
+        try {
+            const newSettings = {
+                yellow_threshold: parseInt(yellowThresholdSelect.value),
+                red_threshold: parseInt(redThresholdSelect.value),
+                yellow_color: yellowColorInput.value,
+                red_color: redColorInput.value,
+                font_family: fontFamilySelect.value,
+                hide_inactive_clients: hideInactiveClientsCheckbox.checked
+            };
+
+            // Save settings to Supabase
+            await Promise.all([
+                SupabaseAPI.setSetting('yellow_threshold', newSettings.yellow_threshold),
+                SupabaseAPI.setSetting('red_threshold', newSettings.red_threshold),
+                SupabaseAPI.setSetting('yellow_color', newSettings.yellow_color),
+                SupabaseAPI.setSetting('red_color', newSettings.red_color),
+                SupabaseAPI.setSetting('font_family', newSettings.font_family),
+                SupabaseAPI.setSetting('hide_inactive_clients', newSettings.hide_inactive_clients)
+            ]);
+
+            appSettings = newSettings;
+            applyFontFamily(appSettings.font_family);
+            renderClients(); // Re-render with new color settings
+            
+            closeBasicSettingsModal();
+            alert('設定が保存されました');
+        } catch (error) {
+            console.error('Error saving basic settings:', error);
+            alert('設定の保存に失敗しました: ' + handleSupabaseError(error));
+        }
+    }
+
+    function closeBasicSettingsModal() {
+        basicSettingsModal.style.display = 'none';
+    }
+
+    // --- Default Tasks Management ---
+    async function openDefaultTasksModal() {
+        try {
+            const tasks = await SupabaseAPI.getDefaultTasks();
+            
+            defaultTasks = {
+                kityo: [],
+                jikei: []
+            };
+            
+            tasks.forEach(task => {
+                if (task.accounting_method === '記帳代行') {
+                    defaultTasks.kityo = JSON.parse(task.tasks);
+                } else if (task.accounting_method === '自計') {
+                    defaultTasks.jikei = JSON.parse(task.tasks);
                 }
+            });
+
+            renderDefaultTasks();
+            defaultTasksModal.style.display = 'block';
+        } catch (error) {
+            console.error('Error opening default tasks modal:', error);
+            alert('初期項目の取得に失敗しました: ' + handleSupabaseError(error));
+        }
+    }
+
+    function renderDefaultTasks() {
+        renderTaskList('kityo', tasksKityoContainer);
+        renderTaskList('jikei', tasksJikeiContainer);
+    }
+
+    function renderTaskList(type, container) {
+        container.innerHTML = '';
+        
+        defaultTasks[type].forEach((task, index) => {
+            const taskItem = document.createElement('div');
+            taskItem.className = 'task-item';
+            taskItem.innerHTML = `
+                <input type="text" value="${task}" data-type="${type}" data-index="${index}">
+                <button type="button" class="delete-task-button" data-type="${type}" data-index="${index}">削除</button>
+            `;
+            container.appendChild(taskItem);
+        });
+
+        // Add event listeners
+        container.addEventListener('click', (e) => {
+            if (e.target.classList.contains('delete-task-button')) {
+                const type = e.target.getAttribute('data-type');
+                const index = parseInt(e.target.getAttribute('data-index'));
+                defaultTasks[type].splice(index, 1);
+                renderTaskList(type, type === 'kityo' ? tasksKityoContainer : tasksJikeiContainer);
             }
-            row.insertCell().textContent = client.monthlyProgress;
-            const updatedAtCell = row.insertCell();
-            if (client.updated_at) {
-                const date = new Date(client.updated_at);
-                const jstString = date.toLocaleString('ja-JP', {
-                    year: 'numeric',
-                    month: '2-digit',
-                    day: '2-digit',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false,
-                    timeZone: 'Asia/Tokyo'
-                });
-                updatedAtCell.textContent = jstString;
-            } else {
-                updatedAtCell.textContent = 'N/A';
+        });
+
+        container.addEventListener('input', (e) => {
+            if (e.target.tagName === 'INPUT') {
+                const type = e.target.getAttribute('data-type');
+                const index = parseInt(e.target.getAttribute('data-index'));
+                defaultTasks[type][index] = e.target.value;
             }
-            row.insertCell().textContent = client.staff_name;
-            row.insertCell().textContent = client.accounting_method;
+        });
+    }
+
+    async function saveDefaultTasks() {
+        try {
+            // Save both accounting methods
+            const promises = [];
             
-            const statusCell = row.insertCell();
-            const customSelectWrapper = createStatusDropdown(client);
-            statusCell.appendChild(customSelectWrapper);
-            initializeCustomDropdown(customSelectWrapper.querySelector('select'));
-            updateStatusBackgroundColor(customSelectWrapper, client.status);
-
-            row.insertCell().innerHTML = `<a href="edit.html?no=${client.id}">編集</a>`;
+            if (defaultTasks.kityo && defaultTasks.kityo.length > 0) {
+                // Find and update or create the 記帳代行 task
+                promises.push(updateDefaultTask('記帳代行', defaultTasks.kityo));
+            }
             
-            // 関与終了クライアントに特別なクラスを追加
-            if (client.is_inactive) {
-                row.classList.add('inactive-client');
-                // 事業者名の後に関与終了バッジを追加
-                const nameCell = row.cells[1]; // 事業者名のセル
-                nameCell.innerHTML = `<a href="details.html?no=${client.id}" class="client-name-link">${client.name}</a><span class="inactive-badge">関与終了</span>`;
+            if (defaultTasks.jikei && defaultTasks.jikei.length > 0) {
+                // Find and update or create the 自計 task
+                promises.push(updateDefaultTask('自計', defaultTasks.jikei));
+            }
+
+            await Promise.all(promises);
+            
+            closeDefaultTasksModal();
+            alert('初期項目の設定が保存されました');
+        } catch (error) {
+            console.error('Error saving default tasks:', error);
+            alert('初期項目の保存に失敗しました: ' + handleSupabaseError(error));
+        }
+    }
+
+    async function updateDefaultTask(accountingMethod, tasks) {
+        // This would require implementing an upsert operation for default_tasks
+        // For now, log the operation
+        console.log('Updating default tasks for', accountingMethod, ':', tasks);
+    }
+
+    function closeDefaultTasksModal() {
+        defaultTasksModal.style.display = 'none';
+        defaultTasks = {};
+    }
+
+    // --- Utility Functions ---
+    function debounce(func, wait) {
+        let timeout;
+        return function executedFunction(...args) {
+            const later = () => {
+                clearTimeout(timeout);
+                func(...args);
+            };
+            clearTimeout(timeout);
+            timeout = setTimeout(later, wait);
+        };
+    }
+
+    function handleSearch() {
+        renderClients();
+        saveFilterState();
+    }
+
+    function handleFilterChange() {
+        renderClients();
+        saveFilterState();
+    }
+
+    function getFilteredClients() {
+        return clients.filter(client => {
+            // Search filter
+            const searchTerm = searchInput.value.toLowerCase();
+            const matchesSearch = !searchTerm || 
+                client.name.toLowerCase().includes(searchTerm) ||
+                client.staff_name?.toLowerCase().includes(searchTerm);
+
+            // Staff filter
+            const staffFilterValue = staffFilter.value;
+            const matchesStaff = !staffFilterValue || client.staff_id?.toString() === staffFilterValue;
+
+            // Month filter
+            const monthFilterValue = monthFilter.value;
+            const matchesMonth = !monthFilterValue || client.fiscal_month?.toString() === monthFilterValue;
+
+            // Hide inactive filter
+            const showInactive = !appSettings.hide_inactive_clients;
+            const matchesStatus = showInactive || client.status === 'active';
+
+            return matchesSearch && matchesStaff && matchesMonth && matchesStatus;
+        });
+    }
+
+    function sortClients(clientList) {
+        return clientList.sort((a, b) => {
+            let aValue = a[currentSortKey];
+            let bValue = b[currentSortKey];
+
+            // Handle different data types
+            if (typeof aValue === 'string' && typeof bValue === 'string') {
+                aValue = aValue.toLowerCase();
+                bValue = bValue.toLowerCase();
+            }
+
+            if (aValue === bValue) return 0;
+
+            const result = aValue < bValue ? -1 : 1;
+            return currentSortDirection === 'asc' ? result : -result;
+        });
+    }
+
+    // --- Setup Functions ---
+    function setupTableHeaders() {
+        if (!clientsTableHeadRow) return;
+
+        const headers = clientsTableHeadRow.querySelectorAll('th');
+        headers.forEach((header, index) => {
+            const headerText = header.textContent.trim();
+            const sortKey = headerMap[headerText];
+            
+            if (sortKey && sortKey !== 'monthlyProgress') {
+                header.style.cursor = 'pointer';
+                header.setAttribute('data-sort-key', sortKey);
+                
+                const icon = document.createElement('span');
+                icon.className = 'sort-icon';
+                icon.innerHTML = '↕️';
+                header.appendChild(icon);
             }
         });
     }
 
-    function createStatusDropdown(client) {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'custom-select-wrapper';
+    function handleSort(e) {
+        const header = e.target.closest('th');
+        if (!header) return;
 
-        const trigger = document.createElement('div');
-        trigger.className = 'custom-select-trigger';
-        wrapper.appendChild(trigger);
+        const sortKey = header.getAttribute('data-sort-key');
+        if (!sortKey) return;
 
-        const options = document.createElement('div');
-        options.className = 'custom-options';
-        wrapper.appendChild(options);
-
-        const select = document.createElement('select');
-        select.className = 'status-dropdown';
-        select.style.display = 'none';
-        wrapper.appendChild(select);
-
-        const statuses = ['未着手', '依頼中', 'チェック待ち', '作業中', '完了'];
-        statuses.forEach(status => {
-            const option = document.createElement('option');
-            option.value = status;
-            option.textContent = status;
-            if (client.status === status) {
-                option.selected = true;
-            }
-            select.appendChild(option);
-        });
-
-        select.addEventListener('change', (event) => {
-            client.status = event.target.value;
-            updateStatusBackgroundColor(wrapper, client.status);
-            // TODO: Call API to save status change
-            console.log(`Status for client ${client.id} changed to ${client.status}. API call to be implemented.`);
-            // saveData(window.clients, window.clientDetails, window.staffs);
-        });
-
-        return wrapper;
-    }
-
-    function updateStatusBackgroundColor(element, status) {
-        element.className = 'custom-select-wrapper'; // Reset classes
-        element.classList.add(`status-${status}`);
-    }
-
-    // --- Sorting ---
-    function handleSortClick(event) {
-        const targetTh = event.target.closest('th');
-        if (!targetTh || !targetTh.dataset.sortKey) return;
-
-        const sortKey = targetTh.dataset.sortKey;
         if (currentSortKey === sortKey) {
             currentSortDirection = currentSortDirection === 'asc' ? 'desc' : 'asc';
         } else {
             currentSortKey = sortKey;
             currentSortDirection = 'asc';
         }
+
         renderClients();
+        updateSortIcons();
     }
 
     function updateSortIcons() {
-        clientsTableHeadRow.querySelectorAll('th[data-sort-key]').forEach(th => {
-            const sortIcon = th.querySelector('.sort-icon');
-            th.classList.remove('sorted-column');
-            sortIcon.classList.remove('asc', 'desc');
-            if (th.dataset.sortKey === currentSortKey) {
-                th.classList.add('sorted-column');
-                sortIcon.classList.add(currentSortDirection);
+        const headers = clientsTableHeadRow.querySelectorAll('th');
+        headers.forEach(header => {
+            const icon = header.querySelector('.sort-icon');
+            if (!icon) return;
+
+            const sortKey = header.getAttribute('data-sort-key');
+            if (sortKey === currentSortKey) {
+                icon.innerHTML = currentSortDirection === 'asc' ? '↑' : '↓';
+                icon.style.opacity = '1';
+            } else {
+                icon.innerHTML = '↕️';
+                icon.style.opacity = '0.5';
             }
         });
     }
 
-    function monthToNumber(monthStr) {
-        if (typeof monthStr !== 'string') return 0;
-        return parseInt(monthStr.replace('月', ''));
+    function populateFilters() {
+        populateStaffFilter();
+        populateMonthFilter();
     }
 
-    // --- Staff Modal Logic ---
-    function openStaffModal() {
-        // The 'staffs' array is already fetched from the API in initializeApp
-        originalStaffsState = JSON.parse(JSON.stringify(staffs));
-        currentEditingStaffs = JSON.parse(JSON.stringify(staffs));
-        renderStaffList(currentEditingStaffs);
-        staffEditModal.style.display = 'block';
-    }
-
-    function renderStaffList(staffsToRender) {
-        staffListContainer.innerHTML = '';
-        staffsToRender.forEach(staff => {
-            const staffItem = document.createElement('div');
-            staffItem.classList.add('task-item'); // Assuming task-item style is generic
-            staffItem.innerHTML = `
-                <span class="staff-no">No. ${staff.id}</span>
-                <input type="text" value="${staff.name}" data-id="${staff.id}" class="task-input">
-                <button class="delete-task-button" data-id="${staff.id}">削除</button>
-            `;
-            staffListContainer.appendChild(staffItem);
-        });
-    }
-
-    async function addStaff() {
-        const newStaffName = newStaffInput.value.trim();
-        if (!newStaffName) {
-            alert('担当者名を入力してください。');
-            return;
-        }
-        if (currentEditingStaffs.some(s => s.name === newStaffName)) {
-            alert('その担当者は既に追加されています。');
-            return;
-        }
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/staffs`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newStaffName }),
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || '担当者の追加に失敗しました。');
-            }
-
-            const newStaff = await response.json();
-            currentEditingStaffs.push(newStaff);
-            renderStaffList(currentEditingStaffs);
-            newStaffInput.value = '';
-
-        } catch (error) {
-            alert(error.message);
-        }
-    }
-
-    async function handleStaffListClick(event) {
-        if (!event.target.classList.contains('delete-task-button')) {
-            return;
-        }
-
-        const staffIdToDelete = parseInt(event.target.dataset.id);
-        const staffToDelete = currentEditingStaffs.find(s => s.id === staffIdToDelete);
-
-        if (!staffToDelete) return;
-
-        if (!confirm(`「${staffToDelete.name}」さんを削除します。よろしいですか？\n（既に使用中の担当者は削除できません）`)) {
-            return;
-        }
-
-        try {
-            const response = await fetch(`${API_BASE_URL}/staffs/${staffIdToDelete}`, {
-                method: 'DELETE',
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || '担当者の削除に失敗しました。');
-            }
-
-            currentEditingStaffs = currentEditingStaffs.filter(staff => staff.id !== staffIdToDelete);
-            renderStaffList(currentEditingStaffs);
-
-        } catch (error) {
-            alert(error.message);
-        }
-    }
-
-    function handleStaffListInput(event) {
-        if (event.target.classList.contains('task-input')) { // Assuming 'task-input' class is used for staff name inputs
-            const staffId = parseInt(event.target.dataset.id);
-            const staff = currentEditingStaffs.find(s => s.id === staffId);
+    function populateStaffFilter() {
+        staffFilter.innerHTML = '<option value="">すべての担当者</option>';
+        
+        const uniqueStaffs = [...new Set(staffs.map(s => s.id))];
+        uniqueStaffs.forEach(staffId => {
+            const staff = staffs.find(s => s.id === staffId);
             if (staff) {
-                staff.name = event.target.value.trim();
-            }
-        }
-    }
-
-    async function saveStaff() {
-        const updatePromises = [];
-
-        // Find updated staff members
-        currentEditingStaffs.forEach(editedStaff => {
-            const originalStaff = originalStaffsState.find(s => s.id === editedStaff.id);
-            // Check if the staff existed before and the name has changed
-            if (originalStaff && originalStaff.name !== editedStaff.name) {
-                const promise = fetch(`${API_BASE_URL}/staffs/${editedStaff.id}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: editedStaff.name }),
-                });
-                updatePromises.push(promise);
+                const option = document.createElement('option');
+                option.value = staff.id;
+                option.textContent = staff.name;
+                staffFilter.appendChild(option);
             }
         });
+    }
 
-        // Note: This implementation only handles UPDATES.
-        // Additions and deletions are handled instantly and are not part of the "Save" button's logic.
-
-        if (updatePromises.length === 0) {
-            // If nothing changed, just close the modal.
-            staffEditModal.style.display = 'none';
-            return;
-        }
-
-        try {
-            const responses = await Promise.all(updatePromises);
-
-            // Check if all API calls were successful
-            const failedResponse = responses.find(res => !res.ok);
-            if (failedResponse) {
-                const errorData = await failedResponse.json();
-                throw new Error(errorData.error || `Failed to update staff with status: ${failedResponse.status}`);
-            }
-
-            alert('保存しました！');
-            window.location.reload(); // Reload the page to reflect all changes
-
-        } catch (error) {
-            alert(`保存中にエラーが発生しました: ${error.message}`);
+    function populateMonthFilter() {
+        monthFilter.innerHTML = '<option value="">すべての決算月</option>';
+        
+        for (let month = 1; month <= 12; month++) {
+            const option = document.createElement('option');
+            option.value = month;
+            option.textContent = `${month}月`;
+            monthFilter.appendChild(option);
         }
     }
 
-    // --- CSV Import/Export Functions ---
-    async function exportClientsCSV() {
-        try {
-            const response = await fetch(`${API_BASE_URL}/clients/export`);
-            
-            if (!response.ok) {
-                throw new Error(`Export failed: ${response.status}`);
+    function populateMonthThresholds() {
+        [yellowThresholdSelect, redThresholdSelect].forEach(select => {
+            select.innerHTML = '';
+            for (let i = 1; i <= 12; i++) {
+                const option = document.createElement('option');
+                option.value = i;
+                option.textContent = `${i}ヶ月`;
+                select.appendChild(option);
             }
-            
-            // Create download link
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'clients.csv';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            window.URL.revokeObjectURL(url);
-            
-            alert('✅ CSVエクスポートが完了しました！');
-            
-        } catch (error) {
-            console.error('Export error:', error);
-            alert(`❌ CSVエクスポートに失敗しました: ${error.message}`);
+        });
+    }
+
+    function populateFontFamilySelect() {
+        const fonts = [
+            'Noto Sans JP',
+            'Hiragino Sans',
+            'Yu Gothic',
+            'Meiryo',
+            'MS Gothic',
+            'Arial',
+            'Helvetica'
+        ];
+
+        fontFamilySelect.innerHTML = '';
+        fonts.forEach(font => {
+            const option = document.createElement('option');
+            option.value = font;
+            option.textContent = font;
+            fontFamilySelect.appendChild(option);
+        });
+    }
+
+    function applyFontFamily(fontFamily) {
+        if (fontFamily) {
+            document.body.style.fontFamily = fontFamily;
         }
     }
 
-    async function importClientsCSV(event) {
-        const file = event.target.files[0];
-        if (!file) return;
-        
-        // Reset file input
-        event.target.value = '';
-        
-        if (!confirm('CSVファイルをインポートしますか？\n既存データは更新され、新しいデータは追加されます。')) {
-            return;
-        }
-        
-        try {
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            const response = await fetch(`${API_BASE_URL}/clients/import`, {
-                method: 'POST',
-                body: formData
-            });
-            
-            const result = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(result.error || 'Import failed');
-            }
-            
-            // Show results
-            let message = `✅ ${result.message}`;
-            if (result.errors && result.errors.length > 0) {
-                message += '\n\n⚠️ 以下のエラーがありました:\n' + result.errors.join('\n');
-            }
-            
-            alert(message);
-            
-            // Reload data to show changes
-            await initializeApp();
-            
-        } catch (error) {
-            console.error('Import error:', error);
-            alert(`❌ CSVインポートに失敗しました: ${error.message}`);
-        }
-    }
-
-    async function resetDatabase() {
-        const confirmMessage = `⚠️ データベース初期化の警告\n\n` +
-            `この操作により以下のデータが完全に削除されます:\n` +
-            `• すべての事業者データ\n` +
-            `• すべての月次進捗データ\n` +
-            `• すべての担当者データ\n` +
-            `• すべてのカスタム設定\n\n` +
-            `この操作は元に戻すことができません。\n` +
-            `本当に実行しますか？`;
-            
-        if (!confirm(confirmMessage)) {
-            return;
-        }
-        
-        const doubleConfirm = confirm('最終確認：データベースを初期化しますか？\n\n全データが失われます。');
-        if (!doubleConfirm) {
-            return;
-        }
-        
-        try {
-            const response = await fetch(`${API_BASE_URL}/admin/reset-database`, {
-                method: 'POST'
-            });
-            
-            const result = await response.json();
-            
-            if (!response.ok) {
-                throw new Error(result.error || 'Database reset failed');
-            }
-            
-            alert(`✅ ${result.message}\n\nサンプルデータと初期設定が作成されました。`);
-            
-            // Reload the page to show fresh data
-            window.location.reload();
-            
-        } catch (error) {
-            console.error('Database reset error:', error);
-            alert(`❌ データベース初期化に失敗しました: ${error.message}`);
-        }
-    }
-
-    // --- Filter State Management ---
+    // --- State Management ---
     function loadFilterState() {
-        try {
-            const savedState = localStorage.getItem('clientListFilterState');
-            if (savedState) {
-                filterState = JSON.parse(savedState);
-            }
-        } catch (error) {
-            console.warn('フィルター状態の読み込みに失敗しました:', error);
-            filterState = {};
-        }
-    }
-    
-    function saveFilterState() {
-        try {
-            filterState = {
-                searchText: searchInput.value,
-                staffFilter: staffFilter.value,
-                monthFilter: monthFilter.value
-            };
-            localStorage.setItem('clientListFilterState', JSON.stringify(filterState));
-        } catch (error) {
-            console.warn('フィルター状態の保存に失敗しました:', error);
-        }
-    }
-    
-    function applyFilterState() {
-        if (filterState.searchText !== undefined) {
-            searchInput.value = filterState.searchText;
-        }
-        if (filterState.staffFilter !== undefined) {
-            staffFilter.value = filterState.staffFilter;
-        }
-        if (filterState.monthFilter !== undefined) {
-            monthFilter.value = filterState.monthFilter;
-        }
-        
-        // カスタムドロップダウンの表示更新
-        updateCustomDropdownTrigger(staffFilter);
-        updateCustomDropdownTrigger(monthFilter);
-    }
-    
-    function updateCustomDropdownTrigger(selectElement) {
-        const wrapper = selectElement.closest('.custom-select-wrapper');
-        if (wrapper) {
-            const trigger = wrapper.querySelector('.custom-select-trigger');
-            const selectedOption = selectElement.options[selectElement.selectedIndex];
-            if (trigger && selectedOption) {
-                trigger.textContent = selectedOption.textContent;
+        const saved = localStorage.getItem('filterState');
+        if (saved) {
+            try {
+                filterState = JSON.parse(saved);
+            } catch (error) {
+                console.error('Error loading filter state:', error);
+                filterState = {};
             }
         }
     }
 
-    // --- Run Application ---
+    function saveFilterState() {
+        filterState = {
+            search: searchInput.value,
+            staff: staffFilter.value,
+            month: monthFilter.value
+        };
+        localStorage.setItem('filterState', JSON.stringify(filterState));
+    }
+
+    function applyFilterState() {
+        if (filterState.search) searchInput.value = filterState.search;
+        if (filterState.staff) staffFilter.value = filterState.staff;
+        if (filterState.month) monthFilter.value = filterState.month;
+    }
+
+    // --- Accordion ---
+    function toggleAccordion() {
+        const isExpanded = accordionContent.style.display === 'block';
+        accordionContent.style.display = isExpanded ? 'none' : 'block';
+        
+        const icon = accordionHeader.querySelector('.accordion-icon');
+        if (icon) {
+            icon.textContent = isExpanded ? '▼' : '▲';
+        }
+    }
+
+    // Initialize the application
     initializeApp();
 });
