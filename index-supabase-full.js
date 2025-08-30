@@ -203,7 +203,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Add client button
         document.getElementById('add-client-button').addEventListener('click', () => {
-            window.location.href = 'client-detail.html';
+            window.location.href = 'details-supabase.html';
         });
 
         // Window click to close modal
@@ -228,7 +228,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Navigate to client detail page
-            window.location.href = `client-detail.html?id=${clientId}`;
+            window.location.href = `details-supabase.html?id=${clientId}`;
         }
     }
 
