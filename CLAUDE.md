@@ -164,6 +164,61 @@ README_SUPABASE.md          # 完全移行ガイド
 
 **🚀 次回は Vercelデプロイ→動作テスト→本番切り替え で完全移行完了予定！**
 
+### 最新の進捗（2025年8月30日更新）
+
+#### 🎉 Supabaseデータ移行完全成功！経理方式別初期項目設定対応完了！
+- **Supabaseデータベース構造調整完了** ✅
+- **経理方式別初期項目データ作成完了** ✅
+- **既存データ保持での安全な移行完了** ✅
+
+#### 完了した移行作業
+1. **default_tasksテーブル構造調整**
+   - 新カラム追加：`accounting_method` VARCHAR(255), `tasks` JSONB
+   - Flask版と完全互換の構造に調整
+   - 既存の10件の個別タスクデータ保持
+
+2. **経理方式別初期項目データ作成**
+   - **記帳代行**（ID:14）: `["受付","入力完了","担当チェック","不明投げかけ","月次完了"]`
+   - **自計**（ID:15）: `["データ受領","担当チェック","不明投げかけ","月次完了"]`
+
+3. **clientsテーブル経理方式更新**
+   - 株式会社サンプル商事・山田工業・佐藤建設・鈴木製作所 → **記帳代行**（4社）
+   - 田中商店 → **自計**（1社）
+   - `法人税法`/`所得税法` → `記帳代行`/`自計` 変換完了
+
+#### 移行で解決したエラーと対策
+1. **relation "backup_default_tasks" already exists**
+   → `CREATE TABLE IF NOT EXISTS` で解決
+
+2. **null value in column "task_name" violates not-null constraint**  
+   → `task_name`にダミー値設定 + `ALTER COLUMN DROP NOT NULL`で解決
+
+3. **no unique or exclusion constraint matching ON CONFLICT**
+   → `DO $$ IF NOT EXISTS` ブロックで条件付き挿入に変更
+
+#### 作成したSQLファイル
+- **supabase-migration-simple.sql** - 最終実行成功版
+- **supabase-migration-final.sql**, **supabase-migration-fixed.sql** - エラー修正版
+- **supabase-schema-corrected.sql** - Flask完全互換スキーマ
+- **supabase-corrected-data.sql** - 正しい経理方式データ
+
+#### 技術的成果
+- **UUID対応**: Supabase標準のUUID型をそのまま活用
+- **段階的安全移行**: 既存データを保持しながら構造変更
+- **Flask API互換**: 同じデータ構造でAPI切り替え可能
+
+#### 次回セッションでの作業予定
+1. **JavaScript側Supabase接続テスト** - 新データ構造での動作確認
+2. **経理方式自動設定テスト** - メイン画面での初期項目設定機能確認
+3. **完全Supabase移行** - Flask APIからSupabase APIへの切り替え
+4. **Vercelデプロイ最終テスト** - 本番環境での動作確認
+
+#### 現在の本番環境
+- **Supabase**: データ移行完了、経理方式対応済み
+- **Vercel Frontend**: https://jigyousya-final.vercel.app/ (Flask API使用中)
+- **最新コミット**: dcad57f（Supabase移行完了）
+- **技術スタック準備完了**: Supabase + Vercel完全サーバーレス構成
+
 ## ユーザーの方針
 - **安定性重視**: 複雑な機能追加よりも現在の機能の安定化を優先
 - **デプロイ目標**: 基本機能が安定したらデプロイして実運用で改良を進める
