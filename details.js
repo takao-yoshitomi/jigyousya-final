@@ -153,21 +153,21 @@ document.addEventListener('DOMContentLoaded', async () => {
             const setupCheck = await SupabaseAPI.checkIfClientNeedsInitialSetup(clientId);
             
             if (setupCheck.needs) {
-                showStatus('初期項目を設定中...', 'warning');
+                showStatus('初期タスクを設定中...', 'warning');
                 
                 const setupResult = await SupabaseAPI.setupInitialTasksForClient(clientId);
                 
                 // Update local client details
                 clientDetails.custom_tasks_by_year = setupResult.client.custom_tasks_by_year;
                 
-                showNotification(`${clientDetails.accounting_method}の初期項目を設定しました`, 'success');
+                showNotification(`${clientDetails.accounting_method}の初期タスクを設定しました`, 'success');
                 console.log('Initial tasks setup completed:', setupResult.tasks);
             } else {
                 console.log('Initial tasks setup not needed:', setupCheck.reason);
             }
         } catch (error) {
             console.error('Error setting up initial tasks:', error);
-            showNotification('初期項目設定でエラーが発生しました', 'error');
+            showNotification('初期タスク設定でエラーが発生しました', 'error');
         }
     }
 
@@ -233,7 +233,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         
         if (propagatedCount > 0) {
             console.log(`Propagated tasks from ${fromYear} to ${propagatedCount} future years`);
-            showNotification(`項目変更を${propagatedCount}つの未来年度にも適用しました`, 'info');
+            showNotification(`タスク変更を${propagatedCount}つの未完了年度にも適用しました`, 'info');
         }
     }
 
@@ -284,7 +284,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         finalizeYearButton.textContent = isYearFinalized ? 
             `${currentYearSelection}年度の確定を解除` : 
-            `${currentYearSelection}年度の項目を確定`;
+            `${currentYearSelection}年度のタスクを確定`;
 
         finalizeYearButton.style.backgroundColor = isYearFinalized ? '#FF5722' : '#4CAF50';
     }
@@ -295,7 +295,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
         // Disable editing for finalized years
         editTasksButton.disabled = isYearFinalized;
-        editTasksButton.textContent = isYearFinalized ? '確定済み（編集不可）' : '項目の変更';
+        editTasksButton.textContent = isYearFinalized ? '確定済み (編集不可)' : 'タスクの編集';
 
         // Update table editing capabilities
         updateTableEditingState(!isYearFinalized);
@@ -436,7 +436,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 <tr>
                     <th>担当者</th>
                     <td>${staffName}</td>
-                    <th>経理方式</th>
+                    <th>会計方式</th>
                     <td>${accountingMethod}</td>
                 </tr>
             </table>
@@ -481,7 +481,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
 
         // Generate table header - 月を列として表示
-        let headerHtml = '<tr><th>項目</th>';
+        let headerHtml = '<tr><th>タスク</th>';
         monthsToDisplay.forEach(monthInfo => {
             headerHtml += `<th>${monthInfo.display}</th>`;
         });
@@ -844,6 +844,145 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
     }
 
+// --- CSV Export Logic (Supabase version needs rework) ---
+function exportClientDataToCSV() {
+    if (!clientDetails) {
+        alert('クライアントデータが読み込まれていません。');
+        return;
+    }
+    
+    alert('CSVエクスポート機能は現在再実装中です。');
+    console.log("Attempting to export data for client:", clientDetails.id);
+    // The actual implementation will require async data fetching and is non-trivial.
+    // For now, we just show a message.
+}
+
+function downloadCSV(csvContent) {
+    const blob = new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}${(today.getMonth() + 1).toString().padStart(2, '0')}${today.getDate().toString().padStart(2, '0')}`;
+    const filename = `client_${clientDetails.id}_${dateStr}.csv`;
+
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
+
+
+// Add accordion management menu to the UI
+function addManagementButtons() {
+    const accordionContainer = document.createElement('div');
+    accordionContainer.className = 'accordion-container';
+    accordionContainer.style.cssText = `
+        position: absolute;
+        top: 20px;
+        right: 20px;
+        width: 280px;
+        z-index: 1000;
+        border: 1px solid #ddd;
+        border-radius: 6px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    `;
+
+    const accordionHeader = document.createElement('button');
+    accordionHeader.className = 'accordion-header';
+    accordionHeader.innerHTML = `
+        <span>⚙️ データ管理メニュー</span>
+        <span class="accordion-icon">▼</span>
+    `;
+    accordionHeader.style.cssText = `
+        width: 100%;
+        padding: 12px 16px;
+        background: #f8f9fa;
+        border: none;
+        text-align: left;
+        cursor: pointer;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 14px;
+        font-weight: bold;
+        color: #333;
+        transition: background-color 0.2s;
+    `;
+
+    const accordionContent = document.createElement('div');
+    accordionContent.className = 'accordion-content';
+    accordionContent.style.cssText = `
+        display: none;
+        padding: 16px;
+        background: #fff;
+        border-top: 1px solid #ddd;
+    `;
+
+    const buttonsContainer = document.createElement('div');
+    buttonsContainer.style.cssText = `
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+    `;
+
+    const syncButton = document.createElement('button');
+    syncButton.innerHTML = `<span>🔄</span> <span>データ整合性チェック (準備中)</span>`;
+    syncButton.className = 'accordion-button';
+    syncButton.disabled = true;
+    syncButton.style.cssText = 'padding: 10px; background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; text-align: left; display: flex; align-items: center; gap: 8px;';
+
+
+    const propagateButton = document.createElement('button');
+    propagateButton.innerHTML = `<span>🚀</span> <span>タスクを将来年度に伝播 (準備中)</span>`;
+    propagateButton.className = 'accordion-button';
+    propagateButton.disabled = true;
+    propagateButton.style.cssText = 'padding: 10px; background: #f0f0f0; border: 1px solid #ccc; border-radius: 4px; text-align: left; display: flex; align-items: center; gap: 8px;';
+
+
+    const exportButton = document.createElement('button');
+    exportButton.innerHTML = `<span>📄</span> <span>CSVエクスポート</span>`;
+    exportButton.className = 'accordion-button export-button';
+    exportButton.addEventListener('click', exportClientDataToCSV);
+    exportButton.style.cssText = 'padding: 10px; background: #607D8B; color: white; border: none; border-radius: 4px; cursor: pointer; text-align: left; display: flex; align-items: center; gap: 8px;';
+
+
+    let isOpen = false;
+    accordionHeader.addEventListener('click', () => {
+        isOpen = !isOpen;
+        const icon = accordionHeader.querySelector('.accordion-icon');
+        if (isOpen) {
+            accordionContent.style.display = 'block';
+            icon.textContent = '▲';
+            accordionHeader.style.backgroundColor = '#e9ecef';
+        } else {
+            accordionContent.style.display = 'none';
+            icon.textContent = '▼';
+            accordionHeader.style.backgroundColor = '#f8f9fa';
+        }
+    });
+    
+    accordionHeader.addEventListener('mouseover', () => {
+        if (!isOpen) accordionHeader.style.backgroundColor = '#e9ecef';
+    });
+    accordionHeader.addEventListener('mouseout', () => {
+        if (!isOpen) accordionHeader.style.backgroundColor = '#f8f9fa';
+    });
+
+    buttonsContainer.appendChild(syncButton);
+    buttonsContainer.appendChild(propagateButton);
+    buttonsContainer.appendChild(exportButton);
+
+    accordionContent.appendChild(buttonsContainer);
+    accordionContainer.appendChild(accordionHeader);
+    accordionContainer.appendChild(accordionContent);
+    
+    document.body.appendChild(accordionContainer);
+}
+
     // --- Initialization ---
     async function initialize() {
         try {
@@ -901,5 +1040,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     // Start the application
-    initialize();
+    initialize().then(() => {
+        addManagementButtons();
+    });
 });
