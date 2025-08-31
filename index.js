@@ -361,6 +361,25 @@ document.addEventListener('DOMContentLoaded', () => {
             if (e.target === defaultTasksModal) closeDefaultTasksModal();
             if (e.target === basicSettingsModal) closeBasicSettingsModal();
         });
+
+        // CSV and DB Reset Buttons (with placeholder functionality)
+        document.getElementById('export-csv-button').addEventListener('click', () => {
+            alert('CSVエクスポート機能は準備中です。');
+        });
+
+        document.getElementById('import-csv-button').addEventListener('click', () => {
+            document.getElementById('csv-file-input').click();
+        });
+
+        document.getElementById('csv-file-input').addEventListener('change', () => {
+            alert('CSVインポート機能は準備中です。');
+        });
+
+        document.getElementById('reset-database-button').addEventListener('click', () => {
+            if (confirm('【危険】この操作は元に戻せません。本当にデータベースを初期化しますか？')) {
+                alert('データベース初期化機能は準備中です。');
+            }
+        });
     }
 
     // --- Client Management ---
